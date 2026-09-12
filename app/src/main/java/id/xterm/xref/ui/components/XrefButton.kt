@@ -19,7 +19,9 @@ fun XrefButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    containerColor: androidx.compose.ui.graphics.Color = NeonGreen,
+    contentColor: androidx.compose.ui.graphics.Color = DarkGreen900
 ) {
     Button(
         onClick = onClick,
@@ -29,10 +31,10 @@ fun XrefButton(
         enabled = enabled,
         shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = NeonGreen,
-            contentColor = DarkGreen900,
-            disabledContainerColor = NeonGreen.copy(alpha = 0.5f),
-            disabledContentColor = DarkGreen900.copy(alpha = 0.5f)
+            containerColor = containerColor,
+            contentColor = contentColor,
+            disabledContainerColor = containerColor.copy(alpha = 0.5f),
+            disabledContentColor = contentColor.copy(alpha = 0.5f)
         )
     ) {
         Text(

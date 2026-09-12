@@ -23,13 +23,24 @@ data class JoinRoomRequest(
 
 @Serializable
 data class SessionReadyData(
+    val developer: DeveloperData? = null,
+    val wallet: WalletData? = null
+)
+
+@Serializable
+data class DeveloperData(
+    @SerialName("developer_id")
+    val developerId: String,
+    val username: String,
     val wallet: WalletData? = null
 )
 
 @Serializable
 data class WalletData(
     @SerialName("balance_milli_cr")
-    val balanceMilliCr: Long
+    val balanceMilliCr: Long,
+    @SerialName("balance_cr")
+    val balanceCr: String? = null
 )
 
 @Serializable

@@ -30,18 +30,26 @@ class WebSocketRepository @Inject constructor() {
         }
     }
     
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = Json { 
+        ignoreUnknownKeys = true 
+        encodeDefaults = true
+    }
     private val client = OkHttpClient()
     private var webSocketClient: WebSocketClient? = null
     
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
     val connectionState = _connectionState.asStateFlow()
 
+    private val _walletBalance = MutableStateFlow<String>("0.00 CR")
+    val walletBalance = _walletBalance.asStateFlow()
+
     private val _events = MutableSharedFlow<JsonObject>(extraBufferCapacity = 64)
     val events = _events.asSharedFlow()
 
     private var currentUsername: String? = null
     private var currentPassword: String? = null
+    private var pingJob: Job? = null
+    private val repositoryScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     fun connect(username: String, password: String) {
         currentUsername = username
@@ -68,25 +76,60 @@ class WebSocketRepository @Inject constructor() {
                             handleAuthRequired()
                         }
                         "session.ready" -> {
+                            val dataObj = jsonObject.get("data")?.jsonObject
+                            val walletObj = dataObj?.get("wallet")?.jsonObject
+                            val balanceMilliCr = walletObj?.get("balance_milli_cr")?.jsonPrimitive?.longOrNull ?: 0L
+                            _walletBalance.value = "${balanceMilliCr / 1000} CR"
+                            
                             _connectionState.value = ConnectionState.Connected
+                            startPingScheduler()
+                        }
+                        "wallet.balance.result", "wallet.update", "wallet.transfer.result" -> {
+                            val dataObj = jsonObject.get("data")?.jsonObject
+                            val walletObj = dataObj?.get("wallet")?.jsonObject ?: dataObj
+                            val balanceMilliCr = walletObj?.get("balance_milli_cr")?.jsonPrimitive?.longOrNull ?: 0L
+                            if (balanceMilliCr > 0) {
+                                _walletBalance.value = "${balanceMilliCr / 1000} CR"
+                            }
                         }
                         "error" -> {
-                            val error = jsonObject.get("data")?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull ?: "Unknown error"
-                            _connectionState.value = ConnectionState.Error(error)
+                            stopPingScheduler()
+                            val dataObj = jsonObject.get("data")?.jsonObject
+                            val errorMsg = dataObj?.get("message")?.jsonPrimitive?.contentOrNull 
+                                ?: jsonObject.get("message")?.jsonPrimitive?.contentOrNull 
+                                ?: "Unknown error"
+                            _connectionState.value = ConnectionState.Error(errorMsg)
                         }
                     }
                 }
 
                 override fun onError(error: String) {
+                    stopPingScheduler()
                     _connectionState.value = ConnectionState.Error(error)
                 }
 
                 override fun onClosed(reason: String) {
+                    stopPingScheduler()
                     _connectionState.value = ConnectionState.Disconnected
                 }
             }
         )
         webSocketClient?.connect()
+    }
+
+    private fun startPingScheduler() {
+        stopPingScheduler()
+        pingJob = repositoryScope.launch {
+            while (isActive) {
+                delay(30_000) // 30 seconds
+                ping()
+            }
+        }
+    }
+
+    private fun stopPingScheduler() {
+        pingJob?.cancel()
+        pingJob = null
     }
 
     private fun handleAuthRequired() {
@@ -106,6 +149,7 @@ class WebSocketRepository @Inject constructor() {
     }
 
     fun disconnect() {
+        stopPingScheduler()
         webSocketClient?.disconnect()
         _connectionState.value = ConnectionState.Disconnected
     }

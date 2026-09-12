@@ -60,7 +60,7 @@ fun StatusCard(
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = status,
-                color = if (isConnected) NeonGreen else TextDim,
+                color = if (isConnected) NeonGreen else if (status == "login failed") Color(0xFFFF5252) else TextDim,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace
             )

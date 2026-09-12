@@ -205,7 +205,9 @@ private fun RefereeSection(viewModel: HomeViewModel) {
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !viewModel.isRefereeConnecting
+                    enabled = !viewModel.isRefereeConnecting,
+                    containerColor = if (viewModel.isRefereeConnected) androidx.compose.ui.graphics.Color(0xFFFF5252) else id.xterm.xref.ui.theme.NeonGreen,
+                    contentColor = if (viewModel.isRefereeConnected) androidx.compose.ui.graphics.Color.Black else id.xterm.xref.ui.theme.DarkGreen900
                 )
             }
 
@@ -237,7 +239,9 @@ private fun RefereeSection(viewModel: HomeViewModel) {
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !viewModel.isBroadcastConnecting
+                    enabled = !viewModel.isBroadcastConnecting,
+                    containerColor = if (viewModel.isBroadcastConnected) androidx.compose.ui.graphics.Color(0xFFFF5252) else id.xterm.xref.ui.theme.NeonGreen,
+                    contentColor = if (viewModel.isBroadcastConnected) androidx.compose.ui.graphics.Color.Black else id.xterm.xref.ui.theme.DarkGreen900
                 )
             }
         }
@@ -245,7 +249,7 @@ private fun RefereeSection(viewModel: HomeViewModel) {
         // Referee Status Card
         StatusCard(
             id = viewModel.refereeId,
-            status = if (viewModel.isRefereeConnected) "idle" else "offline",
+            status = viewModel.refereeStatusText,
             credits = viewModel.refereeCredits,
             isConnected = viewModel.isRefereeConnected
         )
@@ -253,7 +257,7 @@ private fun RefereeSection(viewModel: HomeViewModel) {
         // Broadcast Status Card
         StatusCard(
             id = viewModel.broadcastId,
-            status = if (viewModel.isBroadcastConnected) "idle" else "offline",
+            status = viewModel.broadcastStatusText,
             credits = viewModel.broadcastCredits,
             isConnected = viewModel.isBroadcastConnected
         )
