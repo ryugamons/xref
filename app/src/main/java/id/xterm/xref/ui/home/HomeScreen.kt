@@ -50,13 +50,13 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
-            .padding(16.dp)
+            .padding(8.dp)
     ) {
         // 2x2 Icon Grid
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 16.dp)
+                .padding(bottom = 8.dp)
         ) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 GridItem(
@@ -171,7 +171,7 @@ private fun GridItem(
 private fun RefereeSection(viewModel: HomeViewModel) {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -191,10 +191,10 @@ private fun RefereeSection(viewModel: HomeViewModel) {
                 XrefTextField(
                     value = viewModel.password,
                     onValueChange = { newPassword -> viewModel.password = newPassword },
-                    label = "Referee Password",
+                    label = "Password",
                     visualTransformation = PasswordVisualTransformation()
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 XrefButton(
                     text = if (viewModel.isRefereeConnected) "LOGOUT" else "LOGIN",
                     onClick = {
@@ -223,10 +223,10 @@ private fun RefereeSection(viewModel: HomeViewModel) {
                 XrefTextField(
                     value = viewModel.broadcastPassword,
                     onValueChange = { newBroadcastPassword -> viewModel.broadcastPassword = newBroadcastPassword },
-                    label = "Broadcast Password",
+                    label = "Password",
                     visualTransformation = PasswordVisualTransformation()
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 XrefButton(
                     text = if (viewModel.isBroadcastConnected) "LOGOUT" else "LOGIN",
                     onClick = {
@@ -241,8 +241,6 @@ private fun RefereeSection(viewModel: HomeViewModel) {
                 )
             }
         }
-        
-        Spacer(modifier = Modifier.height(4.dp))
         
         // Referee Status Card
         StatusCard(

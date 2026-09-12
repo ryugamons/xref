@@ -30,10 +30,10 @@ fun StatusCard(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(DarkGreen800)
-            .border(1.dp, DarkGreen700, RoundedCornerShape(12.dp))
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            .border(1.dp, DarkGreen700, RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Status indicator dot

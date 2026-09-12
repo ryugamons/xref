@@ -69,14 +69,14 @@ fun MainScreen(
             onDismissRequest = { showInfoDialog = false },
             title = {
                 Text(
-                    text = "XREFF Info",
+                    text = "XREF Info",
                     color = NeonGreen,
                     fontWeight = FontWeight.Bold
                 )
             },
             text = {
                 Text(
-                    text = "App Name: XREFF\n" +
+                    text = "App Name: XREF\n" +
                             "Version: 1.0.0\n" +
                             "Creator: hex\n\n" +
                             "Description: A professional referee tool for mig33 kick tournaments. Features include real-time match monitoring, tournament brackets, and automated 10vs10 match logic with 3s timeout enforcement.",
@@ -99,7 +99,7 @@ fun MainScreen(
             CenterAlignedTopAppBar(
                 title = {
                     Text(
-                        text = "XREFF",
+                        text = "XREF",
                         color = NeonGreen,
                         fontWeight = FontWeight.Black
                     )

@@ -15,7 +15,7 @@ class WebSocketService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createNotificationChannel()
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("XREFF Connected")
+            .setContentTitle("XREF Connected")
             .setContentText("WebSocket is running in background")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .build()

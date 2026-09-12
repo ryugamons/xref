@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "XREFF"
+rootProject.name = "XREF"
 include(":app")

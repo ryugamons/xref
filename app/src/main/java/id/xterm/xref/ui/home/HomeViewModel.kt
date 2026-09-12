@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import id.xterm.xref.data.repository.ConnectionState
 import id.xterm.xref.data.repository.WebSocketRepository
+import id.xterm.xref.data.storage.AuthPreferences
 import kotlinx.coroutines.launch
 
 class HomeViewModel : ViewModel() {
@@ -34,6 +35,14 @@ class HomeViewModel : ViewModel() {
     private var currentConnectionType: String? = null
 
     init {
+        // Load saved credentials
+        viewModelScope.launch {
+            refereeId = AuthPreferences.getRefereeId()
+            password = AuthPreferences.getRefereePassword()
+            broadcastId = AuthPreferences.getBroadcastId()
+            broadcastPassword = AuthPreferences.getBroadcastPassword()
+        }
+
         viewModelScope.launch {
             webSocketRepository.connectionState.collect { state ->
                 isRefereeConnected = currentConnectionType == "REFEREE" && state is ConnectionState.Connected
@@ -66,6 +75,9 @@ class HomeViewModel : ViewModel() {
 
     fun connectReferee() {
         currentConnectionType = "REFEREE"
+        viewModelScope.launch {
+            AuthPreferences.saveRefereeAuth(refereeId, password)
+        }
         webSocketRepository.connect(refereeId, password)
     }
 
@@ -80,6 +92,9 @@ class HomeViewModel : ViewModel() {
 
     fun connectBroadcast() {
         currentConnectionType = "BROADCAST"
+        viewModelScope.launch {
+            AuthPreferences.saveBroadcastAuth(broadcastId, broadcastPassword)
+        }
         webSocketRepository.connect(broadcastId, broadcastPassword)
     }
 
