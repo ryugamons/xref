@@ -64,15 +64,46 @@ fun TournamentTree(participants: List<String>, onLoadToDashboard: (List<String>,
         modifier = Modifier.fillMaxHeight(),
         horizontalArrangement = Arrangement.spacedBy(40.dp)
     ) {
+        if (participants.size > 8) {
+            // Round of 16
+            RoundColumn(
+                title = "ROUND OF 16",
+                matches = listOf(
+                    MatchData(participants.getOrElse(0) { "TEAM 1" }, participants.getOrElse(1) { "TEAM 2" }),
+                    MatchData(participants.getOrElse(2) { "TEAM 3" }, participants.getOrElse(3) { "TEAM 4" }),
+                    MatchData(participants.getOrElse(4) { "TEAM 5" }, participants.getOrElse(5) { "TEAM 6" }),
+                    MatchData(participants.getOrElse(6) { "TEAM 7" }, participants.getOrElse(7) { "TEAM 8" }),
+                    MatchData(participants.getOrElse(8) { "TEAM 9" }, participants.getOrElse(9) { "TEAM 10" }),
+                    MatchData(participants.getOrElse(10) { "TEAM 11" }, participants.getOrElse(11) { "TEAM 12" }),
+                    MatchData(participants.getOrElse(12) { "TEAM 13" }, participants.getOrElse(13) { "TEAM 14" }),
+                    MatchData(participants.getOrElse(14) { "TEAM 15" }, participants.getOrElse(15) { "TEAM 16" })
+                ),
+                onMatchClick = onLoadToDashboard
+            )
+
+            // Connections R16 -> QF
+            BracketLines(count = 4, height = 480.dp)
+        }
+
         // Quarter-finals
         RoundColumn(
             title = "QUARTER-FINALS",
-            matches = listOf(
-                MatchData(participants.getOrElse(0) { "TEAM ALPHA" }, participants.getOrElse(1) { "TEAM BETA" }),
-                MatchData(participants.getOrElse(2) { "TEAM GAMMA" }, participants.getOrElse(3) { "TEAM DELTA" }),
-                MatchData(participants.getOrElse(4) { "TEAM EPSILON" }, participants.getOrElse(5) { "TEAM ZETA" }),
-                MatchData(participants.getOrElse(6) { "TEAM ETA" }, participants.getOrElse(7) { "TEAM THETA" })
-            ),
+            matches = if (participants.size > 8) {
+                listOf(
+                    MatchData("WINNER R16-1", "WINNER R16-2"),
+                    MatchData("WINNER R16-3", "WINNER R16-4"),
+                    MatchData("WINNER R16-5", "WINNER R16-6"),
+                    MatchData("WINNER R16-7", "WINNER R16-8")
+                )
+            } else {
+                listOf(
+                    MatchData(participants.getOrElse(0) { "TEAM ALPHA" }, participants.getOrElse(1) { "TEAM BETA" }),
+                    MatchData(participants.getOrElse(2) { "TEAM GAMMA" }, participants.getOrElse(3) { "TEAM DELTA" }),
+                    MatchData(participants.getOrElse(4) { "TEAM EPSILON" }, participants.getOrElse(5) { "TEAM ZETA" }),
+                    MatchData(participants.getOrElse(6) { "TEAM ETA" }, participants.getOrElse(7) { "TEAM THETA" })
+                )
+            },
+            modifier = Modifier.align(Alignment.CenterVertically),
             onMatchClick = onLoadToDashboard
         )
 

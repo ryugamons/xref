@@ -1,29 +1,49 @@
 package id.xterm.xref.ui.home
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.MeetingRoom
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.xterm.xref.data.repository.ConnectionState
+import id.xterm.xref.ui.components.XrefButton
+import id.xterm.xref.ui.components.XrefCard
+import id.xterm.xref.ui.components.XrefTextField
 import id.xterm.xref.ui.theme.DarkBackground
+import id.xterm.xref.ui.theme.DarkGreen700
+import id.xterm.xref.ui.theme.DarkGreen800
 import id.xterm.xref.ui.theme.NeonGreen
+import id.xterm.xref.ui.theme.TextDim
+
+private enum class HomeSection {
+    REFEREE, ROOM, TEAM, SETTINGS
+}
 
 @Composable
 fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     val connectionState by viewModel.connectionState.collectAsState()
+    var activeSection by remember { mutableStateOf(HomeSection.REFEREE) }
 
     Column(
         modifier = Modifier
@@ -31,89 +51,305 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             .background(DarkBackground)
             .padding(16.dp)
     ) {
-        Text(
-            text = "> SYSTEM CONFIGURATION",
-            color = NeonGreen,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
-
-        // Login Section
-        SectionHeader("LOGIN_MODULE")
-        TerminalTextField(
-            value = viewModel.refereeId,
-            onValueChange = { viewModel.refereeId = it },
-            label = "Referee ID"
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        TerminalTextField(
-            value = viewModel.password,
-            onValueChange = { viewModel.password = it },
-            label = "Password",
-            isPassword = true
-        )
-        
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        // 2x2 Icon Grid
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
         ) {
-            TerminalButton(
-                text = "LOGIN",
-                onClick = { viewModel.login() },
-                modifier = Modifier.weight(1f),
-                enabled = connectionState !is ConnectionState.Connecting && connectionState !is ConnectionState.Connected
+            Row(modifier = Modifier.fillMaxWidth()) {
+                GridItem(
+                    icon = Icons.Rounded.Person,
+                    label = "Referee",
+                    isActive = activeSection == HomeSection.REFEREE,
+                    onClick = { activeSection = HomeSection.REFEREE },
+                    modifier = Modifier.weight(1f)
+                )
+                GridItem(
+                    icon = Icons.Rounded.MeetingRoom,
+                    label = "Room",
+                    isActive = activeSection == HomeSection.ROOM,
+                    onClick = { activeSection = HomeSection.ROOM },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                GridItem(
+                    icon = Icons.Rounded.Groups,
+                    label = "Team",
+                    isActive = activeSection == HomeSection.TEAM,
+                    onClick = { activeSection = HomeSection.TEAM },
+                    modifier = Modifier.weight(1f)
+                )
+                GridItem(
+                    icon = Icons.Rounded.Settings,
+                    label = "Settings",
+                    isActive = activeSection == HomeSection.SETTINGS,
+                    onClick = { activeSection = HomeSection.SETTINGS },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        // Content Area with Animations
+        AnimatedVisibility(
+            visible = activeSection == HomeSection.REFEREE,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            RefereeSection(viewModel)
+        }
+
+        AnimatedVisibility(
+            visible = activeSection == HomeSection.ROOM,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            RoomSection(viewModel, connectionState)
+        }
+
+        AnimatedVisibility(
+            visible = activeSection == HomeSection.TEAM,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+            modifier = Modifier.weight(1f)
+        ) {
+            TeamSection(viewModel)
+        }
+
+        AnimatedVisibility(
+            visible = activeSection == HomeSection.SETTINGS,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            SettingsSection()
+        }
+    }
+}
+
+@Composable
+private fun GridItem(
+    icon: ImageVector,
+    label: String,
+    isActive: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .padding(2.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isActive) DarkGreen800 else Color.Transparent)
+            .border(
+                1.dp,
+                if (isActive) NeonGreen else DarkGreen700,
+                RoundedCornerShape(8.dp)
             )
-            TerminalButton(
-                text = "LOGOUT",
-                onClick = { viewModel.logout() },
-                modifier = Modifier.weight(1f),
-                enabled = connectionState is ConnectionState.Connected
+            .clickable { onClick() }
+            .padding(vertical = 8.dp, horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = if (isActive) NeonGreen else NeonGreen.copy(alpha = 0.6f),
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = label.uppercase(),
+            color = if (isActive) NeonGreen else NeonGreen.copy(alpha = 0.6f),
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace
+        )
+    }
+}
+
+@Composable
+private fun RefereeSection(viewModel: HomeViewModel) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        // Card 1: REFEREE
+        XrefCard(
+            title = "REFEREE",
+            modifier = Modifier.weight(1f)
+        ) {
+            XrefTextField(
+                value = viewModel.refereeId,
+                onValueChange = { newId -> viewModel.refereeId = newId },
+                label = "Referee ID"
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            XrefTextField(
+                value = viewModel.password,
+                onValueChange = { newPassword -> viewModel.password = newPassword },
+                label = "Referee Password",
+                visualTransformation = PasswordVisualTransformation()
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            AccountStatusRow(
+                label = "STATUS",
+                id = viewModel.refereeId,
+                credits = viewModel.refereeCredits,
+                isActive = viewModel.isRefereeConnected
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            XrefButton(
+                text = if (viewModel.isRefereeConnected) "LOGOUT" else "LOGIN",
+                onClick = {
+                    if (viewModel.isRefereeConnected) {
+                        viewModel.disconnectReferee()
+                    } else {
+                        viewModel.connectReferee()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !viewModel.isRefereeConnecting
             )
         }
-        
+
+        // Card 2: BROADCAST
+        XrefCard(
+            title = "BROADCAST",
+            modifier = Modifier.weight(1f)
+        ) {
+            XrefTextField(
+                value = viewModel.broadcastId,
+                onValueChange = { newBroadcastId -> viewModel.broadcastId = newBroadcastId },
+                label = "Broadcast ID"
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            XrefTextField(
+                value = viewModel.broadcastPassword,
+                onValueChange = { newBroadcastPassword -> viewModel.broadcastPassword = newBroadcastPassword },
+                label = "Broadcast Password",
+                visualTransformation = PasswordVisualTransformation()
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            AccountStatusRow(
+                label = "STATUS",
+                id = viewModel.broadcastId,
+                credits = viewModel.broadcastCredits,
+                isActive = viewModel.isBroadcastConnected
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            XrefButton(
+                text = if (viewModel.isBroadcastConnected) "LOGOUT" else "LOGIN",
+                onClick = {
+                    if (viewModel.isBroadcastConnected) {
+                        viewModel.disconnectBroadcast()
+                    } else {
+                        viewModel.connectBroadcast()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !viewModel.isBroadcastConnecting
+            )
+        }
+    }
+}
+
+@Composable
+private fun AccountStatusRow(label: String, id: String, credits: String, isActive: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Status indicator dot
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (isActive) NeonGreen else TextDim.copy(alpha = 0.3f))
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+
         Text(
-            text = "STATUS: ${connectionState.toString().uppercase()}",
-            color = if (connectionState is ConnectionState.Connected) NeonGreen else if (connectionState is ConnectionState.Error) Color.Red else NeonGreen.copy(alpha = 0.5f),
+            text = label,
+            color = TextDim,
+            fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(bottom = 16.dp)
+            modifier = Modifier.width(70.dp)
         )
 
-        // Configuration Section
-        SectionHeader("ROOM_CONFIG")
+        Text(
+            text = if (id.isEmpty()) "---" else id,
+            color = NeonGreen,
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.weight(1f)
+        )
+
+        Text(
+            text = credits,
+            color = NeonGreen,
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun RoomSection(viewModel: HomeViewModel, connectionState: ConnectionState) {
+    XrefCard(title = "ROOM_CONFIG") {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Bottom
         ) {
-            TerminalTextField(
+            XrefTextField(
                 value = viewModel.roomId,
-                onValueChange = { viewModel.roomId = it },
+                onValueChange = { newRoomId -> viewModel.roomId = newRoomId },
                 label = "Room Name/ID",
                 modifier = Modifier.weight(1f)
             )
-            TerminalButton(
+            XrefButton(
                 text = "JOIN",
                 onClick = { viewModel.joinRoom() },
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.width(80.dp),
                 enabled = connectionState is ConnectionState.Connected
             )
         }
+    }
+}
 
-        Spacer(modifier = Modifier.height(16.dp))
-        SectionHeader("PARTICIPANTS_LIST")
-        LazyColumn(
+@Composable
+private fun TeamSection(viewModel: HomeViewModel) {
+    XrefCard(title = "PARTICIPANTS_LIST", modifier = Modifier.fillMaxHeight()) {
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
-                .border(1.dp, NeonGreen.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
-                .padding(8.dp)
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            XrefButton(
+                text = "8 TEAMS ${if (viewModel.bracketSize == 8) "✔" else ""}",
+                onClick = { viewModel.changeBracketSize(8) },
+                modifier = Modifier.weight(1f),
+                enabled = viewModel.bracketSize != 8
+            )
+            XrefButton(
+                text = "16 TEAMS ${if (viewModel.bracketSize == 16) "✔" else ""}",
+                onClick = { viewModel.changeBracketSize(16) },
+                modifier = Modifier.weight(1f),
+                enabled = viewModel.bracketSize != 16
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f, fill = false)
         ) {
             itemsIndexed(viewModel.participants) { index, participant ->
-                TerminalTextField(
+                XrefTextField(
                     value = participant,
-                    onValueChange = { viewModel.updateParticipant(index, it) },
+                    onValueChange = { newValue -> viewModel.updateParticipant(index, newValue) },
                     label = "Team ${index + 1}",
                     modifier = Modifier.padding(vertical = 4.dp)
                 )
@@ -123,72 +359,20 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
 }
 
 @Composable
-fun SectionHeader(title: String) {
-    Text(
-        text = "[ $title ]",
-        color = NeonGreen.copy(alpha = 0.6f),
-        fontSize = 12.sp,
-        fontFamily = FontFamily.Monospace,
-        modifier = Modifier.padding(bottom = 8.dp)
-    )
-}
-
-@Composable
-fun TerminalTextField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    label: String,
-    modifier: Modifier = Modifier,
-    isPassword: Boolean = false
-) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { Text(label, fontFamily = FontFamily.Monospace) },
-        modifier = modifier.fillMaxWidth(),
-        textStyle = LocalTextStyle.current.copy(
-            color = NeonGreen,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 14.sp
-        ),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = NeonGreen,
-            unfocusedBorderColor = NeonGreen.copy(alpha = 0.5f),
-            focusedLabelColor = NeonGreen,
-            unfocusedLabelColor = NeonGreen.copy(alpha = 0.5f),
-            cursorColor = NeonGreen,
-            focusedTextColor = NeonGreen,
-            unfocusedTextColor = NeonGreen
-        ),
-        visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
-        shape = RoundedCornerShape(4.dp),
-        singleLine = true
-    )
-}
-
-@Composable
-fun TerminalButton(
-    text: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true
-) {
-    Button(
-        onClick = onClick,
-        modifier = modifier,
-        enabled = enabled,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = NeonGreen,
-            contentColor = DarkBackground,
-            disabledContainerColor = NeonGreen.copy(alpha = 0.2f),
-            disabledContentColor = DarkBackground.copy(alpha = 0.5f)
-        ),
-        shape = RoundedCornerShape(4.dp)
-    ) {
-        Text(
-            text = text,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace
-        )
+private fun SettingsSection() {
+    XrefCard(title = "SYSTEM SETTINGS") {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(100.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "SYSTEM SETTINGS",
+                color = NeonGreen.copy(alpha = 0.5f),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 14.sp
+            )
+        }
     }
 }

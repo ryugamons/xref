@@ -21,8 +21,8 @@ import id.xterm.xref.ui.theme.TextDim
 
 @Composable
 fun XrefCard(
-    title: String? = null,
     modifier: Modifier = Modifier,
+    title: String? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(modifier = modifier) {
