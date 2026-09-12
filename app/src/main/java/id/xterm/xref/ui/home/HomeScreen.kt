@@ -30,6 +30,7 @@ import id.xterm.xref.data.repository.ConnectionState
 import id.xterm.xref.ui.components.XrefButton
 import id.xterm.xref.ui.components.XrefCard
 import id.xterm.xref.ui.components.XrefTextField
+import id.xterm.xref.ui.components.StatusCard
 import id.xterm.xref.ui.theme.DarkBackground
 import id.xterm.xref.ui.theme.DarkGreen700
 import id.xterm.xref.ui.theme.DarkGreen800
@@ -168,127 +169,95 @@ private fun GridItem(
 
 @Composable
 private fun RefereeSection(viewModel: HomeViewModel) {
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Card 1: REFEREE
-        XrefCard(
-            title = "REFEREE",
-            modifier = Modifier.weight(1f)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            XrefTextField(
-                value = viewModel.refereeId,
-                onValueChange = { newId -> viewModel.refereeId = newId },
-                label = "Referee ID"
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            XrefTextField(
-                value = viewModel.password,
-                onValueChange = { newPassword -> viewModel.password = newPassword },
-                label = "Referee Password",
-                visualTransformation = PasswordVisualTransformation()
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            AccountStatusRow(
-                label = "STATUS",
-                id = viewModel.refereeId,
-                credits = viewModel.refereeCredits,
-                isActive = viewModel.isRefereeConnected
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            XrefButton(
-                text = if (viewModel.isRefereeConnected) "LOGOUT" else "LOGIN",
-                onClick = {
-                    if (viewModel.isRefereeConnected) {
-                        viewModel.disconnectReferee()
-                    } else {
-                        viewModel.connectReferee()
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !viewModel.isRefereeConnecting
-            )
+            // Card 1: REFEREE
+            XrefCard(
+                title = "REFEREE",
+                modifier = Modifier.weight(1f)
+            ) {
+                XrefTextField(
+                    value = viewModel.refereeId,
+                    onValueChange = { newId -> viewModel.refereeId = newId },
+                    label = "Referee ID"
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                XrefTextField(
+                    value = viewModel.password,
+                    onValueChange = { newPassword -> viewModel.password = newPassword },
+                    label = "Referee Password",
+                    visualTransformation = PasswordVisualTransformation()
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                XrefButton(
+                    text = if (viewModel.isRefereeConnected) "LOGOUT" else "LOGIN",
+                    onClick = {
+                        if (viewModel.isRefereeConnected) {
+                            viewModel.disconnectReferee()
+                        } else {
+                            viewModel.connectReferee()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !viewModel.isRefereeConnecting
+                )
+            }
+
+            // Card 2: BROADCAST
+            XrefCard(
+                title = "BROADCAST",
+                modifier = Modifier.weight(1f)
+            ) {
+                XrefTextField(
+                    value = viewModel.broadcastId,
+                    onValueChange = { newBroadcastId -> viewModel.broadcastId = newBroadcastId },
+                    label = "Broadcast ID"
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                XrefTextField(
+                    value = viewModel.broadcastPassword,
+                    onValueChange = { newBroadcastPassword -> viewModel.broadcastPassword = newBroadcastPassword },
+                    label = "Broadcast Password",
+                    visualTransformation = PasswordVisualTransformation()
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                XrefButton(
+                    text = if (viewModel.isBroadcastConnected) "LOGOUT" else "LOGIN",
+                    onClick = {
+                        if (viewModel.isBroadcastConnected) {
+                            viewModel.disconnectBroadcast()
+                        } else {
+                            viewModel.connectBroadcast()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !viewModel.isBroadcastConnecting
+                )
+            }
         }
-
-        // Card 2: BROADCAST
-        XrefCard(
-            title = "BROADCAST",
-            modifier = Modifier.weight(1f)
-        ) {
-            XrefTextField(
-                value = viewModel.broadcastId,
-                onValueChange = { newBroadcastId -> viewModel.broadcastId = newBroadcastId },
-                label = "Broadcast ID"
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            XrefTextField(
-                value = viewModel.broadcastPassword,
-                onValueChange = { newBroadcastPassword -> viewModel.broadcastPassword = newBroadcastPassword },
-                label = "Broadcast Password",
-                visualTransformation = PasswordVisualTransformation()
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            AccountStatusRow(
-                label = "STATUS",
-                id = viewModel.broadcastId,
-                credits = viewModel.broadcastCredits,
-                isActive = viewModel.isBroadcastConnected
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            XrefButton(
-                text = if (viewModel.isBroadcastConnected) "LOGOUT" else "LOGIN",
-                onClick = {
-                    if (viewModel.isBroadcastConnected) {
-                        viewModel.disconnectBroadcast()
-                    } else {
-                        viewModel.connectBroadcast()
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !viewModel.isBroadcastConnecting
-            )
-        }
-    }
-}
-
-@Composable
-private fun AccountStatusRow(label: String, id: String, credits: String, isActive: Boolean) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Status indicator dot
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(if (isActive) NeonGreen else TextDim.copy(alpha = 0.3f))
+        
+        Spacer(modifier = Modifier.height(4.dp))
+        
+        // Referee Status Card
+        StatusCard(
+            id = viewModel.refereeId,
+            status = if (viewModel.isRefereeConnected) "idle" else "offline",
+            credits = viewModel.refereeCredits,
+            isConnected = viewModel.isRefereeConnected
         )
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Text(
-            text = label,
-            color = TextDim,
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.width(70.dp)
-        )
-
-        Text(
-            text = if (id.isEmpty()) "---" else id,
-            color = NeonGreen,
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.weight(1f)
-        )
-
-        Text(
-            text = credits,
-            color = NeonGreen,
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold
+        
+        // Broadcast Status Card
+        StatusCard(
+            id = viewModel.broadcastId,
+            status = if (viewModel.isBroadcastConnected) "idle" else "offline",
+            credits = viewModel.broadcastCredits,
+            isConnected = viewModel.isBroadcastConnected
         )
     }
 }
