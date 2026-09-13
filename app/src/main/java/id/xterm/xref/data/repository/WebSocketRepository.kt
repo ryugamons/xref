@@ -96,6 +96,12 @@ class WebSocketRepository @Inject constructor() {
         return counter.incrementAndGet().toString()
     }
 
+    private fun updateWalletState(balanceMilliCr: Long, connectionType: String) {
+        val balanceText = "${balanceMilliCr / 1000} CR"
+        if (connectionType == "REFEREE") _refereeWalletBalance.value = balanceText
+        else _starterWalletBalance.value = balanceText
+    }
+
     suspend fun loginAndConnect(username: String, password: String, connectionType: String) {
         val stateFlow = if (connectionType == "REFEREE") _refereeConnectionState else _starterConnectionState
         stateFlow.value = ConnectionState.Connecting
@@ -104,18 +110,11 @@ class WebSocketRepository @Inject constructor() {
             val response = authService.login(LoginApiRequest(username, password))
             if (response.isSuccessful && response.body() != null) {
                 val authData = response.body()!!
-                
-                // Store username for this session
                 sessionUsernames[connectionType] = username
-                
-                // Save tokens for future refresh
                 AuthPreferences.saveTokens(authData.accessToken, authData.refreshToken, connectionType)
                 
-                // Update wallet if available in login response
                 authData.user?.wallet?.balanceMilliCr?.let { balance ->
-                    val balanceText = "${balance / 1000} CR"
-                    if (connectionType == "REFEREE") _refereeWalletBalance.value = balanceText
-                    else _starterWalletBalance.value = balanceText
+                    updateWalletState(balance, connectionType)
                 }
                 
                 openWebSocket(authData.accessToken, connectionType)
@@ -134,10 +133,73 @@ class WebSocketRepository @Inject constructor() {
         }
     }
 
-    private fun updateWalletState(balanceMilliCr: Long, connectionType: String) {
-        val balanceText = "${balanceMilliCr / 1000} CR"
-        if (connectionType == "REFEREE") _refereeWalletBalance.value = balanceText
-        else _starterWalletBalance.value = balanceText
+    suspend fun getWalletHistory(connectionType: String): WalletHistoryResponse? {
+        val token = AuthPreferences.getAccessToken(connectionType)
+        if (token.isEmpty()) return null
+        
+        try {
+            val response = authService.getWalletHistory("Bearer $token")
+            if (response.isSuccessful) return response.body()
+            
+            // If 401, try to refresh
+            if (response.code() == 401) {
+                if (refreshTokens(connectionType)) {
+                    // Retry with new token
+                    val newToken = AuthPreferences.getAccessToken(connectionType)
+                    val retryResponse = authService.getWalletHistory("Bearer $newToken")
+                    if (retryResponse.isSuccessful) return retryResponse.body()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("XREF_AUTH", "Failed to fetch wallet history: ${e.message}")
+        }
+        return null
+    }
+
+    suspend fun sendTransfer(target: String, milliCr: Long, pin: String, connectionType: String): Boolean {
+        val token = AuthPreferences.getAccessToken(connectionType)
+        if (token.isEmpty()) return false
+        
+        val idempotencyKey = "wallet-transfer-${java.util.UUID.randomUUID()}"
+        val request = TransferRequest(
+            toUsername = target,
+            amountMilliCr = milliCr,
+            pin = pin,
+            idempotencyKey = idempotencyKey
+        )
+        
+        try {
+            val response = authService.transfer("Bearer $token", request)
+            if (response.isSuccessful) return true
+            
+            if (response.code() == 401) {
+                if (refreshTokens(connectionType)) {
+                    val newToken = AuthPreferences.getAccessToken(connectionType)
+                    val retryResponse = authService.transfer("Bearer $newToken", request)
+                    return retryResponse.isSuccessful
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("XREF_AUTH", "Transfer failed: ${e.message}")
+        }
+        return false
+    }
+
+    private suspend fun refreshTokens(connectionType: String): Boolean {
+        val refreshToken = AuthPreferences.getRefreshToken(connectionType)
+        if (refreshToken.isEmpty()) return false
+        
+        try {
+            val response = authService.refresh(mapOf("refresh_token" to refreshToken))
+            if (response.isSuccessful && response.body() != null) {
+                val authData = response.body()!!
+                AuthPreferences.saveTokens(authData.accessToken, authData.refreshToken, connectionType)
+                return true
+            }
+        } catch (e: Exception) {
+            Log.e("XREF_AUTH", "Token refresh failed: ${e.message}")
+        }
+        return false
     }
 
     private fun openWebSocket(token: String, connectionType: String) {
@@ -172,134 +234,111 @@ class WebSocketRepository @Inject constructor() {
                             
                             repositoryScope.launch {
                                 _roomMessages.emit(roomName.lowercase() to ChatMessage(
-                                    room = roomName.lowercase(),
+                                    room = roomName.uppercase(),
                                     username = username,
                                     text = body,
                                     time = time,
                                     type = msgType,
-                                    eventType = "room.message.received"
+                                    eventType = type
                                 ))
                             }
                         }
                         "room.joined" -> {
                             val roomName = jsonObject.get("room")?.jsonPrimitive?.contentOrNull
+                            val usernameInPacket = jsonObject.get("username")?.jsonPrimitive?.contentOrNull
+                            
                             if (roomName != null) {
-                                val normalizedRoom = roomName.lowercase()
-                                if (!_activeRooms.value.contains(normalizedRoom)) {
-                                    _activeRooms.value = _activeRooms.value + normalizedRoom
+                                val normalizedRoomKey = roomName.lowercase()
+                                val displayRoom = roomName.uppercase()
+                                
+                                if (!_activeRooms.value.contains(normalizedRoomKey)) {
+                                    _activeRooms.value = _activeRooms.value + normalizedRoomKey
                                 }
                                 
-                                val description = jsonObject.get("room_description")?.jsonPrimitive?.contentOrNull ?: ""
-                                val owner = jsonObject.get("room_owner_username")?.jsonPrimitive?.contentOrNull ?: ""
-                                val announcement = jsonObject.get("room_announcement")?.jsonPrimitive?.contentOrNull ?: ""
-                                val participantsArray = jsonObject.get("participants")?.jsonArray
-                                val participantsList = participantsArray?.mapNotNull { 
-                                    it.jsonObject["username"]?.jsonPrimitive?.contentOrNull 
-                                }?.joinToString(", ") ?: ""
-                                
-                                val time = jsonObject.get("time")?.jsonPrimitive?.contentOrNull ?: ""
-                                
-                                repositoryScope.launch {
-                                    // 1. Room Description
-                                    _roomMessages.emit(normalizedRoom to ChatMessage(
-                                        room = roomName.uppercase(),
-                                        username = "",
-                                        text = description,
-                                        time = time,
-                                        type = MessageType.PRESENCE,
-                                        eventType = "room.joined"
-                                    ))
-                                    // 2. Managed by
-                                    _roomMessages.emit(normalizedRoom to ChatMessage(
-                                        room = roomName.uppercase(),
-                                        username = "managed by",
-                                        text = owner,
-                                        time = time,
-                                        type = MessageType.PRESENCE,
-                                        eventType = "room.joined"
-                                    ))
-                                    // 3. Currently in room
-                                    _roomMessages.emit(normalizedRoom to ChatMessage(
-                                        room = roomName.uppercase(),
-                                        username = "Currently in the room:",
-                                        text = participantsList,
-                                        time = time,
-                                        type = MessageType.PRESENCE,
-                                        eventType = "room.joined"
-                                    ))
-                                    // 4. Announcement
-                                    if (announcement.isNotEmpty()) {
-                                        _roomMessages.emit(normalizedRoom to ChatMessage(
-                                            room = roomName.uppercase(),
-                                            username = "",
-                                            text = "<< $announcement >>",
-                                            time = time,
-                                            type = MessageType.PRESENCE,
-                                            eventType = "room.joined"
+                                // SNAPSHOT: Only show if I am the one joining
+                                if (usernameInPacket == sessionUsernames[connectionType]) {
+                                    val description = jsonObject.get("room_description")?.jsonPrimitive?.contentOrNull ?: ""
+                                    val owner = jsonObject.get("room_owner_username")?.jsonPrimitive?.contentOrNull ?: ""
+                                    val announcement = jsonObject.get("room_announcement")?.jsonPrimitive?.contentOrNull ?: ""
+                                    val participantsArray = jsonObject.get("participants")?.jsonArray
+                                    val participantsList = participantsArray?.mapNotNull { 
+                                        it.jsonObject["username"]?.jsonPrimitive?.contentOrNull 
+                                    }?.joinToString(", ") ?: ""
+                                    
+                                    val time = jsonObject.get("time")?.jsonPrimitive?.contentOrNull ?: ""
+                                    
+                                    repositoryScope.launch {
+                                        _roomMessages.emit(normalizedRoomKey to ChatMessage(
+                                            room = displayRoom, username = "", text = description,
+                                            time = time, type = MessageType.PRESENCE, eventType = type
                                         ))
+                                        _roomMessages.emit(normalizedRoomKey to ChatMessage(
+                                            room = displayRoom, username = "managed by", text = owner,
+                                            time = time, type = MessageType.PRESENCE, eventType = type
+                                        ))
+                                        _roomMessages.emit(normalizedRoomKey to ChatMessage(
+                                            room = displayRoom, username = "Currently in the room:", text = participantsList,
+                                            time = time, type = MessageType.PRESENCE, eventType = type
+                                        ))
+                                        if (announcement.isNotEmpty()) {
+                                            _roomMessages.emit(normalizedRoomKey to ChatMessage(
+                                                room = "", username = "", text = "<< $announcement >>",
+                                                time = time, type = MessageType.PRESENCE, eventType = type
+                                            ))
+                                        }
                                     }
                                 }
                             }
                         }
+                        "room.left" -> {
+                            val roomName = jsonObject.get("room")?.jsonPrimitive?.contentOrNull
+                            val usernameInPacket = jsonObject.get("username")?.jsonPrimitive?.contentOrNull
+                            if (roomName != null && usernameInPacket == sessionUsernames[connectionType]) {
+                                _activeRooms.value = _activeRooms.value - roomName.lowercase()
+                            }
+                        }
                         "room.participant.added" -> {
-                            val roomName = jsonObject?.get("room")?.jsonPrimitive?.contentOrNull ?: ""
-                            val username = jsonObject?.get("username")?.jsonPrimitive?.contentOrNull ?: ""
-                            repositoryScope.launch {
-                                _roomMessages.emit(roomName.lowercase() to ChatMessage(
-                                    room = roomName.lowercase(),
-                                    username = username,
-                                    text = "has entered",
-                                    time = "",
-                                    type = MessageType.PRESENCE,
-                                    eventType = "room.joined"
-                                ))
+                            val roomName = jsonObject.get("room")?.jsonPrimitive?.contentOrNull ?: ""
+                            val username = jsonObject.get("username")?.jsonPrimitive?.contentOrNull ?: ""
+                            val time = jsonObject.get("time")?.jsonPrimitive?.contentOrNull ?: ""
+                            
+                            if (username.isNotEmpty() && username != sessionUsernames[connectionType]) {
+                                repositoryScope.launch {
+                                    _roomMessages.emit(roomName.lowercase() to ChatMessage(
+                                        room = roomName.uppercase(),
+                                        username = username,
+                                        text = "has entered",
+                                        time = time,
+                                        type = MessageType.PRESENCE,
+                                        eventType = type
+                                    ))
+                                }
                             }
                         }
                         "room.participant.removed" -> {
-                            val roomName = jsonObject?.get("room")?.jsonPrimitive?.contentOrNull ?: ""
-                            val username = jsonObject?.get("username")?.jsonPrimitive?.contentOrNull ?: ""
-                            repositoryScope.launch {
-                                _roomMessages.emit(roomName.lowercase() to ChatMessage(
-                                    room = roomName.lowercase(),
-                                    username = username,
-                                    text = "has left",
-                                    time = "",
-                                    type = MessageType.PRESENCE,
-                                    eventType = "room.left"
-                                ))
+                            val roomName = jsonObject.get("room")?.jsonPrimitive?.contentOrNull ?: ""
+                            val username = jsonObject.get("username")?.jsonPrimitive?.contentOrNull ?: ""
+                            val time = jsonObject.get("time")?.jsonPrimitive?.contentOrNull ?: ""
+                            
+                            if (username.isNotEmpty() && username != sessionUsernames[connectionType]) {
+                                repositoryScope.launch {
+                                    _roomMessages.emit(roomName.lowercase() to ChatMessage(
+                                        room = roomName.uppercase(),
+                                        username = username,
+                                        text = "has left",
+                                        time = time,
+                                        type = MessageType.PRESENCE,
+                                        eventType = type
+                                    ))
+                                }
                             }
                         }
                         "wallet.updated" -> {
                             val username = jsonObject?.get("username")?.jsonPrimitive?.contentOrNull
                             val balance = jsonObject?.get("wallet_balance_milli_cr")?.jsonPrimitive?.longOrNull ?: 0L
                             
-                            // Only update if it matches the session's username
                             if (username != null && username == sessionUsernames[connectionType]) {
                                 updateWalletState(balance, connectionType)
-                            }
-                        }
-                        "room.left" -> {
-                            val roomName = jsonObject.get("room")?.jsonPrimitive?.contentOrNull
-                            val username = jsonObject.get("username")?.jsonPrimitive?.contentOrNull
-                            
-                            if (roomName != null) {
-                                val normalizedRoom = roomName.lowercase()
-                                // If the one who left is the session user, remove room from active list
-                                if (username != null && username == sessionUsernames[connectionType]) {
-                                    _activeRooms.value = _activeRooms.value - normalizedRoom
-                                } else {
-                                    // Someone else left, show presence message
-                                    repositoryScope.launch {
-                                        _roomMessages.emit(normalizedRoom to ChatMessage(
-                                            room = roomName.uppercase(),
-                                            username = username ?: "",
-                                            text = "has left",
-                                            time = jsonObject.get("time")?.jsonPrimitive?.contentOrNull ?: "",
-                                            type = MessageType.PRESENCE,
-                                            eventType = "room.left"
-                                        ))
-                                    }
-                                }
                             }
                         }
                         "error" -> {

@@ -21,8 +21,6 @@ import id.xterm.xref.core.websocket.ChatMessage
 import id.xterm.xref.core.websocket.MessageType
 import id.xterm.xref.ui.theme.NeonGreen
 import id.xterm.xref.ui.theme.TextLight
-import java.text.SimpleDateFormat
-import java.util.*
 
 @Composable
 fun ChatView(
@@ -33,7 +31,8 @@ fun ChatView(
     
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            // Use scrollToItem instead of animateScrollToItem to save CPU on low-end devices
+            listState.scrollToItem(messages.size - 1)
         }
     }
 
@@ -71,10 +70,13 @@ private fun ChatItem(message: ChatMessage) {
         )
         
         when (message.eventType) {
-            "room.joined", "room.left" -> {
+            "room.joined", "room.participant.added", "room.participant.removed" -> {
+                // Formatting for system/snapshot messages
+                val prefix = if (message.room.isNotEmpty()) "${message.room}: " else ""
                 val displayName = if (message.username.isNotEmpty()) "${message.username} " else ""
+                
                 Text(
-                    text = "${message.room}: $displayName${message.text}",
+                    text = "$prefix$displayName${message.text}",
                     color = NeonGreen.copy(alpha = 0.6f),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
@@ -99,11 +101,10 @@ private fun ChatItem(message: ChatMessage) {
                 }
             }
             else -> {
-                // Fallback for other message types
                 Text(
                     text = "${message.username}: ${message.text}",
                     color = TextLight,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace
                 )
             }

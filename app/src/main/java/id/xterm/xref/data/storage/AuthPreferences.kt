@@ -26,6 +26,8 @@ object AuthPreferences {
     private val KEY_MATCH_TEAM_COUNT = stringPreferencesKey("match_team_count")
     private val KEY_MATCH_FEE_ENABLED = stringPreferencesKey("match_fee_enabled")
     private val KEY_MATCH_FEE_NOMINAL = stringPreferencesKey("match_fee_nominal")
+    private val KEY_WALLET_PIN = stringPreferencesKey("wallet_pin")
+    private val KEY_BROADCAST_INTERVAL = stringPreferencesKey("broadcast_interval")
 
     suspend fun saveRefereeAuth(id: String, password: String) {
         dataStore.edit { prefs ->
@@ -68,6 +70,14 @@ object AuthPreferences {
         }
     }
 
+    suspend fun saveWalletPin(pin: String) {
+        dataStore.edit { prefs -> prefs[KEY_WALLET_PIN] = pin }
+    }
+
+    suspend fun saveBroadcastInterval(seconds: Int) {
+        dataStore.edit { prefs -> prefs[KEY_BROADCAST_INTERVAL] = seconds.toString() }
+    }
+
     suspend fun getRefereeId(): String = dataStore.data.map { it[KEY_REFEREE_ID] ?: "" }.first()
     suspend fun getRefereePassword(): String = dataStore.data.map { it[KEY_REFEREE_PASSWORD] ?: "" }.first()
     suspend fun getStarterId(): String = dataStore.data.map { it[KEY_STARTER_ID] ?: "" }.first()
@@ -89,4 +99,6 @@ object AuthPreferences {
     suspend fun getMatchTeamCount(): Int = dataStore.data.map { it[KEY_MATCH_TEAM_COUNT]?.toIntOrNull() ?: 8 }.first()
     suspend fun getMatchFeeEnabled(): Boolean = dataStore.data.map { it[KEY_MATCH_FEE_ENABLED]?.toBoolean() ?: false }.first()
     suspend fun getMatchFeeNominal(): String = dataStore.data.map { it[KEY_MATCH_FEE_NOMINAL] ?: "0" }.first()
+    suspend fun getWalletPin(): String = dataStore.data.map { it[KEY_WALLET_PIN] ?: "123456" }.first()
+    suspend fun getBroadcastInterval(): Int = dataStore.data.map { it[KEY_BROADCAST_INTERVAL]?.toIntOrNull() ?: 60 }.first()
 }

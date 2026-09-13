@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -31,7 +32,17 @@ fun BracketScreen(
     onLoadToDashboard: (teamA: List<String>, teamB: List<String>) -> Unit = { _, _ -> }
 ) {
     val scrollState = rememberScrollState()
-    val participants = homeViewModel.participants
+    
+    // Fill remaining slots with dummy names to complete the bracket
+    val registeredCount = homeViewModel.registeredParticipants.size
+    val totalSlots = homeViewModel.bracketSize
+    val participants = remember(registeredCount, totalSlots) {
+        val list = homeViewModel.registeredParticipants.toMutableList()
+        while (list.size < totalSlots) {
+            list.add("EMPTY SLOT ${list.size + 1}")
+        }
+        list
+    }
 
     Column(
         modifier = Modifier
@@ -64,72 +75,62 @@ fun TournamentTree(participants: List<String>, onLoadToDashboard: (List<String>,
         modifier = Modifier.fillMaxHeight(),
         horizontalArrangement = Arrangement.spacedBy(40.dp)
     ) {
-        if (participants.size > 8) {
+        val size = participants.size
+
+        if (size >= 16) {
             // Round of 16
             RoundColumn(
                 title = "ROUND OF 16",
-                matches = listOf(
-                    MatchData(participants.getOrElse(0) { "TEAM 1" }, participants.getOrElse(1) { "TEAM 2" }),
-                    MatchData(participants.getOrElse(2) { "TEAM 3" }, participants.getOrElse(3) { "TEAM 4" }),
-                    MatchData(participants.getOrElse(4) { "TEAM 5" }, participants.getOrElse(5) { "TEAM 6" }),
-                    MatchData(participants.getOrElse(6) { "TEAM 7" }, participants.getOrElse(7) { "TEAM 8" }),
-                    MatchData(participants.getOrElse(8) { "TEAM 9" }, participants.getOrElse(9) { "TEAM 10" }),
-                    MatchData(participants.getOrElse(10) { "TEAM 11" }, participants.getOrElse(11) { "TEAM 12" }),
-                    MatchData(participants.getOrElse(12) { "TEAM 13" }, participants.getOrElse(13) { "TEAM 14" }),
-                    MatchData(participants.getOrElse(14) { "TEAM 15" }, participants.getOrElse(15) { "TEAM 16" })
-                ),
+                matches = (0 until 8).map { i ->
+                    MatchData(participants.getOrElse(i * 2) { "T${i * 2 + 1}" }, participants.getOrElse(i * 2 + 1) { "T${i * 2 + 2}" })
+                },
                 onMatchClick = onLoadToDashboard
             )
-
-            // Connections R16 -> QF
             BracketLines(count = 4, height = 480.dp)
         }
 
-        // Quarter-finals
-        RoundColumn(
-            title = "QUARTER-FINALS",
-            matches = if (participants.size > 8) {
-                listOf(
-                    MatchData("WINNER R16-1", "WINNER R16-2"),
-                    MatchData("WINNER R16-3", "WINNER R16-4"),
-                    MatchData("WINNER R16-5", "WINNER R16-6"),
-                    MatchData("WINNER R16-7", "WINNER R16-8")
-                )
-            } else {
-                listOf(
-                    MatchData(participants.getOrElse(0) { "TEAM ALPHA" }, participants.getOrElse(1) { "TEAM BETA" }),
-                    MatchData(participants.getOrElse(2) { "TEAM GAMMA" }, participants.getOrElse(3) { "TEAM DELTA" }),
-                    MatchData(participants.getOrElse(4) { "TEAM EPSILON" }, participants.getOrElse(5) { "TEAM ZETA" }),
-                    MatchData(participants.getOrElse(6) { "TEAM ETA" }, participants.getOrElse(7) { "TEAM THETA" })
-                )
-            },
-            modifier = Modifier.align(Alignment.CenterVertically),
-            onMatchClick = onLoadToDashboard
-        )
+        if (size >= 8) {
+            // Quarter-finals
+            RoundColumn(
+                title = "QUARTER-FINALS",
+                matches = if (size > 8) {
+                    (0 until 4).map { MatchData("WINNER R16-${it * 2 + 1}", "WINNER R16-${it * 2 + 2}") }
+                } else {
+                    (0 until 4).map { i ->
+                        MatchData(participants.getOrElse(i * 2) { "T${i * 2 + 1}" }, participants.getOrElse(i * 2 + 1) { "T${i * 2 + 2}" })
+                    }
+                },
+                modifier = Modifier.align(Alignment.CenterVertically),
+                onMatchClick = onLoadToDashboard
+            )
+            BracketLines(count = 2, height = 480.dp)
+        }
 
-        // Connections QF -> SF
-        BracketLines(count = 2, height = 480.dp)
+        if (size >= 4) {
+            // Semi-finals
+            RoundColumn(
+                title = "SEMI-FINALS",
+                matches = if (size > 4) {
+                    (0 until 2).map { MatchData("WINNER QF-${it * 2 + 1}", "WINNER QF-${it * 2 + 2}") }
+                } else {
+                    (0 until 2).map { i ->
+                        MatchData(participants.getOrElse(i * 2) { "T${i * 2 + 1}" }, participants.getOrElse(i * 2 + 1) { "T${i * 2 + 2}" })
+                    }
+                },
+                modifier = Modifier.align(Alignment.CenterVertically),
+                onMatchClick = onLoadToDashboard
+            )
+            BracketLines(count = 1, height = 240.dp)
+        }
 
-        // Semi-finals
-        RoundColumn(
-            title = "SEMI-FINALS",
-            matches = listOf(
-                MatchData("WINNER QF1", "WINNER QF2"),
-                MatchData("WINNER QF3", "WINNER QF4")
-            ),
-            modifier = Modifier.align(Alignment.CenterVertically),
-            onMatchClick = onLoadToDashboard
-        )
-
-        // Connections SF -> F
-        BracketLines(count = 1, height = 240.dp)
-
-        // Final
+        // Final (Always show for 2 or more)
         RoundColumn(
             title = "GRAND FINAL",
-            matches = listOf(
-                MatchData("WINNER SF1", "WINNER SF2")
-            ),
+            matches = if (size > 2) {
+                listOf(MatchData("WINNER SF1", "WINNER SF2"))
+            } else {
+                listOf(MatchData(participants.getOrElse(0) { "TEAM A" }, participants.getOrElse(1) { "TEAM B" }))
+            },
             modifier = Modifier.align(Alignment.CenterVertically),
             onMatchClick = onLoadToDashboard
         )
@@ -213,22 +214,15 @@ fun BracketLines(count: Int, height: Dp) {
         val w = size.width
         val h = size.height
         
-        // Simple bracket line implementation
-        // This draws a bracket for each pair of matches
         val pairHeight = h / count
         for (i in 0 until count) {
             val yTop = (i * pairHeight) + (pairHeight * 0.25f)
             val yBottom = (i * pairHeight) + (pairHeight * 0.75f)
             val yMid = (i * pairHeight) + (pairHeight * 0.5f)
             
-            // Horizontal from start to mid
             drawLine(color, Offset(0f, yTop), Offset(w / 2, yTop), strokeWidth)
             drawLine(color, Offset(0f, yBottom), Offset(w / 2, yBottom), strokeWidth)
-            
-            // Vertical connection
             drawLine(color, Offset(w / 2, yTop), Offset(w / 2, yBottom), strokeWidth)
-            
-            // Horizontal to next round
             drawLine(color, Offset(w / 2, yMid), Offset(w, yMid), strokeWidth)
         }
     }

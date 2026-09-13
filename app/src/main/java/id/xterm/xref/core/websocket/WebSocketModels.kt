@@ -32,6 +32,48 @@ data class UserData(
     val wallet: WalletData? = null
 )
 
+@JsonClass(generateAdapter = true)
+@Serializable
+data class WalletHistoryResponse(
+    @Json(name = "has_more") val hasMore: Boolean,
+    val limit: Int,
+    @Json(name = "next_offset") val nextOffset: Int,
+    val offset: Int,
+    val status: String,
+    val transactions: List<TransactionData>,
+    val wallet: WalletData? = null
+)
+
+@JsonClass(generateAdapter = true)
+@Serializable
+data class TransactionData(
+    val id: Long,
+    @Json(name = "user_id") val userId: String,
+    @Json(name = "counterparty_user_id") val counterpartyUserId: String? = null,
+    val type: String,
+    @Json(name = "amount_milli_cr") val amountMilliCr: Long,
+    @Json(name = "balance_after_milli_cr") val balanceAfterMilliCr: Long,
+    @Json(name = "reference_id") val referenceId: String,
+    val note: String,
+    @Json(name = "created_at") val createdAt: String
+)
+
+@JsonClass(generateAdapter = true)
+@Serializable
+data class TransferRequest(
+    @Json(name = "to_username") val toUsername: String,
+    @Json(name = "amount_milli_cr") val amountMilliCr: Long,
+    val pin: String,
+    @Json(name = "idempotency_key") val idempotencyKey: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+@Serializable
+data class TransferResponse(
+    val status: String,
+    val transaction: TransactionData? = null
+)
+
 /** WEBSOCKET REQUEST MODELS **/
 
 @Serializable

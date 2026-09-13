@@ -201,7 +201,7 @@ private fun ContentArea(
         enter = fadeIn() + expandVertically(),
         exit = fadeOut() + shrinkVertically()
     ) {
-        SettingsSection()
+        SettingsSection(viewModel)
     }
 }
 
@@ -485,7 +485,7 @@ private fun MatchSection(viewModel: HomeViewModel) {
         Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // Dropdown for Team Count
             var expanded by remember { mutableStateOf(false) }
-            val options = listOf(8, 16, 32, 64)
+            val options = listOf(2, 4, 8, 16, 32, 64)
             
             Column {
                 Text(
@@ -591,48 +591,74 @@ private fun MatchSection(viewModel: HomeViewModel) {
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
-            HorizontalDivider(color = DarkGreen700, thickness = 1.dp)
-            
-            Text(
-                text = "PARTICIPANTS LIST",
-                color = TextDim,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
+            Spacer(modifier = Modifier.height(16.dp))
 
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                itemsIndexed(viewModel.participants) { index, participant ->
-                    XrefTextField(
-                        value = participant,
-                        onValueChange = { newValue -> viewModel.updateParticipant(index, newValue) },
-                        label = "Team ${index + 1}",
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
+            // OPEN / CLOSE MATCH Button
+            XrefButton(
+                text = if (viewModel.isMatchOpen) "STOP BROADCAST" else "OPEN REGISTRATION",
+                onClick = { viewModel.toggleMatchStatus() },
+                modifier = Modifier.fillMaxWidth(),
+                height = 56.dp,
+                enabled = viewModel.isRefereeConnected,
+                containerColor = if (viewModel.isMatchOpen) Color(0xFFFF5252) else NeonGreen,
+                contentColor = if (viewModel.isMatchOpen) Color.Black else Color.Black
+            )
+            
+            if (viewModel.isMatchOpen) {
+                Text(
+                    text = "BROADCASTING EVERY 60S...",
+                    color = NeonGreen.copy(alpha = 0.7f),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Text(
+                    text = "REGISTERED: ${viewModel.registeredParticipants.size}/${viewModel.bracketSize}",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
             }
         }
     }
 }
 
 @Composable
-private fun SettingsSection() {
+private fun SettingsSection(viewModel: HomeViewModel) {
     XrefCard(title = "SYSTEM SETTINGS") {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(100.dp),
-            contentAlignment = Alignment.Center
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            XrefTextField(
+                value = viewModel.walletPin,
+                onValueChange = { viewModel.updateWalletPin(it) },
+                label = "WALLET PIN",
+                visualTransformation = PasswordVisualTransformation()
+            )
+            
+            XrefTextField(
+                value = viewModel.broadcastIntervalSeconds.toString(),
+                onValueChange = { 
+                    val newValue = it.toIntOrNull() ?: 60
+                    viewModel.updateBroadcastInterval(newValue)
+                },
+                label = "BROADCAST INTERVAL (SECONDS)"
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
             Text(
-                text = "SYSTEM SETTINGS",
-                color = NeonGreen.copy(alpha = 0.5f),
+                text = "XREF TERMINAL v1.0.0",
+                color = NeonGreen.copy(alpha = 0.3f),
                 fontFamily = FontFamily.Monospace,
-                fontSize = 14.sp
+                fontSize = 10.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
             )
         }
     }

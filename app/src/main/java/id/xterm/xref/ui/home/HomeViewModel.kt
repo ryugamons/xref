@@ -13,7 +13,12 @@ import id.xterm.xref.core.websocket.MessageType
 import id.xterm.xref.data.repository.ConnectionState
 import id.xterm.xref.data.repository.WebSocketRepository
 import id.xterm.xref.data.storage.AuthPreferences
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
 class HomeViewModel : ViewModel() {
     private val webSocketRepository = WebSocketRepository.getInstance()
@@ -29,9 +34,18 @@ class HomeViewModel : ViewModel() {
 
     // Match configuration
     var bracketSize by mutableStateOf(8)
-        private set
     var isRegistrationFeeEnabled by mutableStateOf(false)
     var registrationFeeNominal by mutableStateOf("0")
+    
+    // System Settings
+    var walletPin by mutableStateOf("123456")
+    var broadcastIntervalSeconds by mutableStateOf(60)
+
+    // Match Active State
+    var isMatchOpen by mutableStateOf(false)
+    val registeredParticipants = mutableStateListOf<String>()
+    private var broadcastJob: Job? = null
+    private var historyCheckJob: Job? = null
 
     var refereeCredits by mutableStateOf("0.00 CR")
     var starterCredits by mutableStateOf("0.00 CR")
@@ -53,7 +67,7 @@ class HomeViewModel : ViewModel() {
     var selectedRoomInRoomsTab by mutableStateOf<String?>(null)
 
     init {
-        // Load saved credentials, rooms, and match settings
+        // Load saved credentials, rooms, match settings and system settings
         viewModelScope.launch {
             refereeId = AuthPreferences.getRefereeId()
             refereePassword = AuthPreferences.getRefereePassword()
@@ -63,7 +77,7 @@ class HomeViewModel : ViewModel() {
             broadcastRoom = AuthPreferences.getBroadcastRoom()
             val savedBattleRooms = AuthPreferences.getBattleRooms()
             if (savedBattleRooms.isEmpty()) {
-                battleRooms.add("") // Default one empty field
+                battleRooms.add("") 
             } else {
                 battleRooms.addAll(savedBattleRooms)
             }
@@ -72,11 +86,11 @@ class HomeViewModel : ViewModel() {
             isRegistrationFeeEnabled = AuthPreferences.getMatchFeeEnabled()
             registrationFeeNominal = AuthPreferences.getMatchFeeNominal()
             
-            // Sync participants size with loaded bracket size
-            adjustParticipantsSize(bracketSize)
+            walletPin = AuthPreferences.getWalletPin()
+            broadcastIntervalSeconds = AuthPreferences.getBroadcastInterval()
         }
 
-        // Listen to Referee (Broadcaster Role) connection states
+        // Listen to Referee connection states
         viewModelScope.launch {
             webSocketRepository.refereeConnectionState.collect { state ->
                 isRefereeConnected = state is ConnectionState.Connected
@@ -85,7 +99,10 @@ class HomeViewModel : ViewModel() {
                 when (state) {
                     is ConnectionState.Connected -> refereeStatusText = "idle"
                     is ConnectionState.Connecting -> refereeStatusText = "connecting"
-                    is ConnectionState.Disconnected, ConnectionState.Idle -> refereeStatusText = "offline"
+                    is ConnectionState.Disconnected, ConnectionState.Idle -> {
+                        refereeStatusText = "offline"
+                        if (isMatchOpen) toggleMatchStatus() 
+                    }
                     is ConnectionState.Error -> {
                         refereeStatusText = if (state.message.contains("Broken pipe", ignoreCase = true) || 
                             state.message.contains("closed", ignoreCase = true)) {
@@ -120,6 +137,32 @@ class HomeViewModel : ViewModel() {
             }
         }
 
+        // Listen to wallet updates for all users
+        viewModelScope.launch {
+            webSocketRepository.events.collect { json ->
+                if (json["type"]?.jsonPrimitive?.content == "wallet.updated" && isMatchOpen) {
+                    val usernameInPacket = json["username"]?.jsonPrimitive?.content
+                    
+                    // If our own balance updated, fetch history (throttled)
+                    if (usernameInPacket == refereeId) {
+                        checkWalletHistoryThrottled()
+                    }
+                    
+                    // Registration could be free
+                    if (!isRegistrationFeeEnabled && usernameInPacket != null && 
+                        usernameInPacket != refereeId && usernameInPacket != starterId) {
+                        if (!registeredParticipants.contains(usernameInPacket) && registeredParticipants.size < bracketSize) {
+                            registeredParticipants.add(usernameInPacket)
+                            sendRegistrationProgress(usernameInPacket, 0L, 0L)
+                            if (registeredParticipants.size >= bracketSize) {
+                                toggleMatchStatus()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Listen to Referee wallet updates
         viewModelScope.launch {
             webSocketRepository.refereeWalletBalance.collect { balance ->
@@ -136,23 +179,138 @@ class HomeViewModel : ViewModel() {
 
         // Listen to room messages
         viewModelScope.launch {
-            webSocketRepository.roomMessages.collect { (roomName, message) ->
+            webSocketRepository.roomMessages.collect { pair ->
+                val roomName = pair.first
+                val message = pair.second
+                
+                // Detect transfer message from system
+                if (isMatchOpen && message.username == "system") {
+                    val regex = "([a-zA-Z0-9_]+) transferred ([0-9]+) credits".toRegex(RegexOption.IGNORE_CASE)
+                    val match = regex.find(message.text)
+                    if (match != null) {
+                        val sender = match.groupValues[1]
+                        val amountCr = match.groupValues[2].toLongOrNull() ?: 0L
+                        processTransfer(sender, amountCr * 1000)
+                    }
+                }
+
                 val list = _roomMessagesMap.getOrPut(roomName) { mutableStateListOf() }
                 list.add(message)
-                // Keep only last 100 messages per room
-                if (list.size > 100) {
-                    list.removeAt(0)
+                if (list.size > 100) list.removeAt(0)
+            }
+        }
+    }
+
+    private fun checkWalletHistoryThrottled() {
+        // Cancel pending job to avoid spamming network calls
+        historyCheckJob?.cancel()
+        historyCheckJob = viewModelScope.launch {
+            delay(500) // Small delay to debounce rapid wallet updates
+            val history = webSocketRepository.getWalletHistory("REFEREE")
+            val lastTransfer = history?.transactions?.firstOrNull { it.type == "transfer_in" }
+            
+            if (lastTransfer != null) {
+                val sender = lastTransfer.note
+                    .replace("Credit transfer from ", "", ignoreCase = true)
+                    .trim()
+                
+                if (sender.isNotEmpty()) {
+                    processTransfer(sender, lastTransfer.amountMilliCr)
                 }
             }
         }
     }
-    
-    val participants = mutableStateListOf(
-        "TEAM ALPHA", "TEAM BETA", 
-        "TEAM GAMMA", "TEAM DELTA",
-        "TEAM EPSILON", "TEAM ZETA", 
-        "TEAM ETA", "TEAM THETA"
-    )
+
+    fun toggleMatchStatus() {
+        if (!isMatchOpen) {
+            if (!isRefereeConnected) return
+            isMatchOpen = true
+            startBroadcasting()
+        } else {
+            isMatchOpen = false
+            stopBroadcasting()
+            registeredParticipants.clear()
+        }
+    }
+
+    private fun startBroadcasting() {
+        broadcastJob?.cancel()
+        broadcastJob = viewModelScope.launch {
+            while (isActive) {
+                sendCurrentMatchStatus()
+                delay(broadcastIntervalSeconds * 1000L) 
+            }
+        }
+    }
+
+    private fun stopBroadcasting() {
+        broadcastJob?.cancel()
+        broadcastJob = null
+    }
+
+    fun sendCurrentMatchStatus() {
+        val normalizedBroadcastRoom = broadcastRoom.lowercase()
+        val isJoinedInBroadcastRoom = activeRooms.value.contains(normalizedBroadcastRoom)
+
+        if (isRefereeConnected && broadcastRoom.isNotEmpty() && isJoinedInBroadcastRoom) {
+            val joinedText = if (registeredParticipants.isEmpty()) "" else registeredParticipants.joinToString(", ")
+            val feeText = if (isRegistrationFeeEnabled) "$registrationFeeNominal CR" else "FREE"
+            val message = "/me [XREF] OPEN MATCH $bracketSize USER - FEE $feeText - TRF ID $refereeId [$joinedText]"
+
+            activeRooms.value.forEach { room ->
+                webSocketRepository.sendMessage(room, message, "REFEREE")
+            }
+        }
+    }
+
+    fun processTransfer(sender: String, amountMilliCr: Long) {
+        if (!isMatchOpen) return
+        
+        val requiredMilliCr = if (isRegistrationFeeEnabled) {
+            registrationFeeNominal.toLongOrNull()?.let { it * 1000 } ?: 0L
+        } else 0L
+        
+        if (amountMilliCr >= requiredMilliCr) {
+            if (!registeredParticipants.contains(sender) && registeredParticipants.size < bracketSize) {
+                registeredParticipants.add(sender)
+                
+                val refundMilliCr = if (requiredMilliCr > 0) amountMilliCr - requiredMilliCr else 0L
+                
+                if (refundMilliCr > 0) {
+                    viewModelScope.launch {
+                        webSocketRepository.sendTransfer(sender, refundMilliCr, walletPin, "REFEREE")
+                    }
+                }
+
+                sendRegistrationProgress(sender, amountMilliCr / 1000, refundMilliCr / 1000)
+                
+                if (registeredParticipants.size >= bracketSize) {
+                    toggleMatchStatus()
+                }
+            }
+        }
+    }
+
+    private fun sendRegistrationProgress(username: String, amountCr: Long, refundCr: Long = 0L) {
+        val normalizedBroadcastRoom = broadcastRoom.lowercase()
+        val isJoinedInBroadcastRoom = activeRooms.value.contains(normalizedBroadcastRoom)
+
+        if (isRefereeConnected && broadcastRoom.isNotEmpty() && isJoinedInBroadcastRoom) {
+            val count = registeredParticipants.size
+            val total = bracketSize
+            val refundText = if (refundCr > 0) " ${refundCr}CR REFUNDED." else ""
+            
+            val message = if (isRegistrationFeeEnabled) {
+                "/me [XREF]${username.uppercase()} TRANSFER ${amountCr}CR ✅.$refundText REGISTRATION $count/$total."
+            } else {
+                "/me [XREF]${username.uppercase()} JOINED ✅. REGISTRATION $count/$total."
+            }
+
+            activeRooms.value.forEach { room ->
+                webSocketRepository.sendMessage(room, message, "REFEREE")
+            }
+        }
+    }
 
     fun connectReferee() {
         viewModelScope.launch {
@@ -209,7 +367,6 @@ class HomeViewModel : ViewModel() {
 
     fun joinBroadcastRoom() {
         if (broadcastRoom.isNotEmpty()) {
-            // Referee ID acts as Broadcaster (enters rooms)
             webSocketRepository.joinRoom(broadcastRoom, "REFEREE")
         }
     }
@@ -227,7 +384,6 @@ class HomeViewModel : ViewModel() {
     fun joinBattleRoom(index: Int) {
         val room = battleRooms.getOrNull(index)
         if (!room.isNullOrEmpty()) {
-            // Referee ID acts as Broadcaster (enters rooms)
             webSocketRepository.joinRoom(room, "REFEREE")
         }
     }
@@ -287,7 +443,6 @@ class HomeViewModel : ViewModel() {
 
     fun changeBracketSize(size: Int) {
         bracketSize = size
-        adjustParticipantsSize(size)
         saveMatchPrefs()
     }
 
@@ -297,18 +452,14 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    private fun adjustParticipantsSize(targetSize: Int) {
-        while (participants.size < targetSize) {
-            participants.add("TEAM ${participants.size + 1}")
-        }
-        while (participants.size > targetSize) {
-            participants.removeAt(participants.size - 1)
-        }
+    // System Settings
+    fun updateWalletPin(pin: String) {
+        walletPin = pin
+        viewModelScope.launch { AuthPreferences.saveWalletPin(pin) }
     }
-    
-    fun updateParticipant(index: Int, name: String) {
-        if (index in participants.indices) {
-            participants[index] = name
-        }
+
+    fun updateBroadcastInterval(seconds: Int) {
+        broadcastIntervalSeconds = seconds
+        viewModelScope.launch { AuthPreferences.saveBroadcastInterval(seconds) }
     }
 }
