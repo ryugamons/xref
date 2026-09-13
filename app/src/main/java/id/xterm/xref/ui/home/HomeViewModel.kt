@@ -27,6 +27,12 @@ class HomeViewModel : ViewModel() {
     var broadcastRoom by mutableStateOf("")
     val battleRooms = mutableStateListOf<String>()
 
+    // Match configuration
+    var bracketSize by mutableStateOf(8)
+        private set
+    var isRegistrationFeeEnabled by mutableStateOf(false)
+    var registrationFeeNominal by mutableStateOf("0")
+
     var refereeCredits by mutableStateOf("0.00 CR")
     var starterCredits by mutableStateOf("0.00 CR")
 
@@ -43,8 +49,11 @@ class HomeViewModel : ViewModel() {
     private val _roomMessagesMap = mutableStateMapOf<String, SnapshotStateList<ChatMessage>>()
     val roomMessagesMap: Map<String, List<ChatMessage>> = _roomMessagesMap
 
+    // UI state persistence
+    var selectedRoomInRoomsTab by mutableStateOf<String?>(null)
+
     init {
-        // Load saved credentials and rooms
+        // Load saved credentials, rooms, and match settings
         viewModelScope.launch {
             refereeId = AuthPreferences.getRefereeId()
             refereePassword = AuthPreferences.getRefereePassword()
@@ -58,6 +67,13 @@ class HomeViewModel : ViewModel() {
             } else {
                 battleRooms.addAll(savedBattleRooms)
             }
+
+            bracketSize = AuthPreferences.getMatchTeamCount()
+            isRegistrationFeeEnabled = AuthPreferences.getMatchFeeEnabled()
+            registrationFeeNominal = AuthPreferences.getMatchFeeNominal()
+            
+            // Sync participants size with loaded bracket size
+            adjustParticipantsSize(bracketSize)
         }
 
         // Listen to Referee (Broadcaster Role) connection states
@@ -70,7 +86,14 @@ class HomeViewModel : ViewModel() {
                     is ConnectionState.Connected -> refereeStatusText = "idle"
                     is ConnectionState.Connecting -> refereeStatusText = "connecting"
                     is ConnectionState.Disconnected, ConnectionState.Idle -> refereeStatusText = "offline"
-                    is ConnectionState.Error -> refereeStatusText = "login failed"
+                    is ConnectionState.Error -> {
+                        refereeStatusText = if (state.message.contains("Broken pipe", ignoreCase = true) || 
+                            state.message.contains("closed", ignoreCase = true)) {
+                            "connection lost"
+                        } else {
+                            "login failed"
+                        }
+                    }
                 }
             }
         }
@@ -85,7 +108,14 @@ class HomeViewModel : ViewModel() {
                     is ConnectionState.Connected -> starterStatusText = "idle"
                     is ConnectionState.Connecting -> starterStatusText = "connecting"
                     is ConnectionState.Disconnected, ConnectionState.Idle -> starterStatusText = "offline"
-                    is ConnectionState.Error -> starterStatusText = "login failed"
+                    is ConnectionState.Error -> {
+                        starterStatusText = if (state.message.contains("Broken pipe", ignoreCase = true) || 
+                            state.message.contains("closed", ignoreCase = true)) {
+                            "connection lost"
+                        } else {
+                            "login failed"
+                        }
+                    }
                 }
             }
         }
@@ -124,14 +154,11 @@ class HomeViewModel : ViewModel() {
         "TEAM ETA", "TEAM THETA"
     )
 
-    var bracketSize by mutableStateOf(8)
-        private set
-
     fun connectReferee() {
         viewModelScope.launch {
             AuthPreferences.saveRefereeAuth(refereeId, refereePassword)
+            webSocketRepository.loginAndConnect(refereeId, refereePassword, "REFEREE")
         }
-        webSocketRepository.connect(refereeId, refereePassword, "REFEREE")
     }
 
     fun disconnectReferee() {
@@ -141,8 +168,8 @@ class HomeViewModel : ViewModel() {
     fun connectStarter() {
         viewModelScope.launch {
             AuthPreferences.saveStarterAuth(starterId, starterPassword)
+            webSocketRepository.loginAndConnect(starterId, starterPassword, "STARTER")
         }
-        webSocketRepository.connect(starterId, starterPassword, "STARTER")
     }
 
     fun disconnectStarter() {
@@ -190,6 +217,10 @@ class HomeViewModel : ViewModel() {
     fun leaveBroadcastRoom() {
         if (broadcastRoom.isNotEmpty()) {
             webSocketRepository.leaveRoom(broadcastRoom, "REFEREE")
+            _roomMessagesMap.remove(broadcastRoom.lowercase())
+            if (selectedRoomInRoomsTab == broadcastRoom.lowercase()) {
+                selectedRoomInRoomsTab = null
+            }
         }
     }
 
@@ -205,6 +236,10 @@ class HomeViewModel : ViewModel() {
         val room = battleRooms.getOrNull(index)
         if (!room.isNullOrEmpty()) {
             webSocketRepository.leaveRoom(room, "REFEREE")
+            _roomMessagesMap.remove(room.lowercase())
+            if (selectedRoomInRoomsTab == room.lowercase()) {
+                selectedRoomInRoomsTab = null
+            }
         }
     }
 
@@ -228,18 +263,37 @@ class HomeViewModel : ViewModel() {
     fun leaveRooms() {
         if (broadcastRoom.isNotEmpty()) {
             webSocketRepository.leaveRoom(broadcastRoom, "REFEREE")
+            _roomMessagesMap.remove(broadcastRoom.lowercase())
         }
         battleRooms.forEach { room ->
             if (room.isNotEmpty()) {
                 webSocketRepository.leaveRoom(room, "REFEREE")
+                _roomMessagesMap.remove(room.lowercase())
             }
         }
+        selectedRoomInRoomsTab = null
     }
     
+    // Match Setup
+    fun updateRegistrationFee(enabled: Boolean) {
+        isRegistrationFeeEnabled = enabled
+        saveMatchPrefs()
+    }
+
+    fun updateRegistrationFeeNominal(nominal: String) {
+        registrationFeeNominal = nominal
+        saveMatchPrefs()
+    }
+
     fun changeBracketSize(size: Int) {
-        if (size == 8 || size == 16) {
-            bracketSize = size
-            adjustParticipantsSize(size)
+        bracketSize = size
+        adjustParticipantsSize(size)
+        saveMatchPrefs()
+    }
+
+    private fun saveMatchPrefs() {
+        viewModelScope.launch {
+            AuthPreferences.saveMatchSettings(bracketSize, isRegistrationFeeEnabled, registrationFeeNominal)
         }
     }
 

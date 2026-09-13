@@ -1,6 +1,5 @@
 package id.xterm.xref.core.match
 
-import id.xterm.xref.core.websocket.KickEvent
 import id.xterm.xref.data.repository.WebSocketRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -68,17 +67,15 @@ class MatchManager @Inject constructor(
         scope.launch {
             webSocketRepository.events.collect { jsonObject ->
                 val type = jsonObject["type"]?.jsonPrimitive?.content
-                if (type == "room.kick") {
-                    try {
-                        val event = json.decodeFromJsonElement<KickEvent>(jsonObject)
-                        handleKickEvent(event)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                if (type == "room.message.received" || type == "room.message") {
+                    val from = jsonObject["username"]?.jsonPrimitive?.content ?: "System"
+                    val body = jsonObject["body"]?.jsonPrimitive?.content ?: ""
+                    
+                    if (body.contains("kicked", ignoreCase = true)) {
+                         handleKickMessage(from, body)
                     }
-                } else if (type == "room.message") {
-                    val from = jsonObject["data"]?.jsonObject?.get("from")?.jsonPrimitive?.content ?: "System"
-                    val text = jsonObject["data"]?.jsonObject?.get("text")?.jsonPrimitive?.content ?: ""
-                    _logs.value = (listOf("$from: $text") + _logs.value).take(100)
+                    
+                    _logs.value = (listOf("$from: $body") + _logs.value).take(100)
                 }
             }
         }
@@ -103,12 +100,9 @@ class MatchManager @Inject constructor(
         resetTimer()
     }
 
-    private fun handleKickEvent(event: KickEvent) {
-        val from = event.data.from
-        val target = event.data.target
+    private fun handleKickMessage(from: String, body: String) {
         val timestamp = System.currentTimeMillis()
         
-        // Track kick for stats
         _kickCountMap.update { current ->
             current.toMutableMap().apply {
                 this[from] = (this[from] ?: 0) + 1
@@ -121,22 +115,17 @@ class MatchManager @Inject constructor(
         val diff = (timestamp - lastKickTime) / 1000f
         lastKickTime = timestamp
 
-        val logEntry = "[${String.format("%.1fs", diff)}] $from Kicked $target"
+        val logEntry = "[${String.format("%.1fs", diff)}] $from Action: $body"
         _logs.value = (listOf(logEntry) + _logs.value).take(100)
 
-        // Update participant vote status
         updateVoteStatus(from)
-
-        // Reset timer
         resetTimer()
-
-        // Check if a side can no longer vote
         checkEndConditions()
     }
 
     private fun updateKps() {
         val now = System.currentTimeMillis()
-        val window = 5000L // 5 seconds average
+        val window = 5000L
         val kicksInWindow = _kickHistory.value.count { it > now - window }
         _kps.value = kicksInWindow / (window / 1000f)
     }
@@ -178,7 +167,7 @@ class MatchManager @Inject constructor(
                     break
                 }
                 _state.value = MatchState.Running(remaining)
-                delay(16) // ~60fps for smooth countdown
+                delay(16)
             }
         }
     }

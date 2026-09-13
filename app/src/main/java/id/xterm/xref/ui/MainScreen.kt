@@ -167,7 +167,14 @@ fun MainScreen(
                 modifier = Modifier.fillMaxSize()
             ) { page ->
                 when (BottomTab.entries[page]) {
-                    BottomTab.Home -> HomeScreen(homeViewModel)
+                    BottomTab.Home -> HomeScreen(
+                        viewModel = homeViewModel,
+                        onNavigateToRooms = {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(BottomTab.entries.indexOf(BottomTab.Room))
+                            }
+                        }
+                    )
                     BottomTab.Bracket -> BracketScreen(
                         homeViewModel = homeViewModel,
                         onLoadToDashboard = { teamA, teamB ->

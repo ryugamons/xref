@@ -58,19 +58,23 @@ fun ChatView(
 
 @Composable
 private fun ChatItem(message: ChatMessage) {
-    Row(modifier = Modifier.fillMaxWidth()) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top
+    ) {
         Text(
             text = "[${message.time.takeLast(9).replace("Z", "")}]",
             color = NeonGreen.copy(alpha = 0.4f),
             fontSize = 9.sp,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(end = 6.dp, top = 2.dp)
+            modifier = Modifier.padding(end = 6.dp)
         )
         
         when (message.eventType) {
             "room.joined", "room.left" -> {
+                val displayName = if (message.username.isNotEmpty()) "${message.username} " else ""
                 Text(
-                    text = "${message.room}: ${message.username} ${message.text}",
+                    text = "${message.room}: $displayName${message.text}",
                     color = NeonGreen.copy(alpha = 0.6f),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,

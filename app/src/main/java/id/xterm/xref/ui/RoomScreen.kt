@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -35,34 +36,84 @@ import id.xterm.xref.ui.theme.TextDim
 
 @Composable
 fun RoomScreen(viewModel: HomeViewModel) {
-    var selectedRoom by remember { mutableStateOf<String?>(null) }
     val activeRooms by viewModel.activeRooms.collectAsState()
+    
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
-    AnimatedContent(
-        targetState = selectedRoom,
-        transitionSpec = {
-            if (targetState != null) {
-                slideInHorizontally { it } + fadeIn() togetherWith slideOutHorizontally { -it } + fadeOut()
-            } else {
-                slideInHorizontally { -it } + fadeIn() togetherWith slideOutHorizontally { it } + fadeOut()
+    if (isLandscape) {
+        Row(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            // Left Side: Room List
+            Box(modifier = Modifier.width(300.dp)) {
+                RoomList(
+                    rooms = activeRooms.toList(),
+                    viewModel = viewModel,
+                    onRoomClick = { viewModel.selectedRoomInRoomsTab = it }
+                )
             }
-        },
-        label = "RoomNavigation"
-    ) { room ->
-        if (room == null) {
-            RoomList(
-                rooms = activeRooms.toList(),
-                viewModel = viewModel,
-                onRoomClick = { selectedRoom = it }
+            
+            // Vertical Divider
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(1.dp)
+                    .background(NeonGreen.copy(alpha = 0.1f))
             )
-        } else {
-            val messages = viewModel.roomMessagesMap[room] ?: emptyList()
-            RoomChatDetail(
-                roomName = room,
-                messages = messages,
-                viewModel = viewModel,
-                onBack = { selectedRoom = null }
-            )
+
+            // Right Side: Chat Detail
+            Box(modifier = Modifier.weight(1f)) {
+                val selectedRoom = viewModel.selectedRoomInRoomsTab
+                if (selectedRoom != null) {
+                    val messages = viewModel.roomMessagesMap[selectedRoom] ?: emptyList()
+                    RoomChatDetail(
+                        roomName = selectedRoom,
+                        messages = messages,
+                        viewModel = viewModel,
+                        onBack = { viewModel.selectedRoomInRoomsTab = null },
+                        showBackButton = false
+                    )
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "SELECT A ROOM TO START CHATTING",
+                            color = TextDim,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+        }
+    } else {
+        AnimatedContent(
+            targetState = viewModel.selectedRoomInRoomsTab,
+            transitionSpec = {
+                if (targetState != null) {
+                    slideInHorizontally { it } + fadeIn() togetherWith slideOutHorizontally { -it } + fadeOut()
+                } else {
+                    slideInHorizontally { -it } + fadeIn() togetherWith slideOutHorizontally { it } + fadeOut()
+                }
+            },
+            label = "RoomNavigation"
+        ) { room ->
+            if (room == null) {
+                RoomList(
+                    rooms = activeRooms.toList(),
+                    viewModel = viewModel,
+                    onRoomClick = { viewModel.selectedRoomInRoomsTab = it }
+                )
+            } else {
+                val messages = viewModel.roomMessagesMap[room] ?: emptyList()
+                RoomChatDetail(
+                    roomName = room,
+                    messages = messages,
+                    viewModel = viewModel,
+                    onBack = { viewModel.selectedRoomInRoomsTab = null },
+                    showBackButton = true
+                )
+            }
         }
     }
 }
@@ -163,7 +214,8 @@ private fun RoomChatDetail(
     roomName: String,
     messages: List<id.xterm.xref.core.websocket.ChatMessage>,
     viewModel: HomeViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    showBackButton: Boolean = true
 ) {
     Column(
         modifier = Modifier
@@ -175,14 +227,16 @@ private fun RoomChatDetail(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 16.dp)
         ) {
-            IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                    contentDescription = "Back",
-                    tint = NeonGreen
-                )
+            if (showBackButton) {
+                IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "Back",
+                        tint = NeonGreen
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
             }
-            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = roomName.uppercase(),
                 color = NeonGreen,

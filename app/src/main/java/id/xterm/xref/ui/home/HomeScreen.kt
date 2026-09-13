@@ -13,6 +13,7 @@ import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.MeetingRoom
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SportsScore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,11 +41,14 @@ import id.xterm.xref.ui.theme.NeonGreen
 import id.xterm.xref.ui.theme.TextDim
 
 private enum class HomeSection {
-    REFEREE, ROOM, TEAM, SETTINGS
+    REFEREE, ROOM, MATCH, SETTINGS
 }
 
 @Composable
-fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
+fun HomeScreen(
+    viewModel: HomeViewModel = viewModel(),
+    onNavigateToRooms: () -> Unit = {}
+) {
     var activeSection by remember { mutableStateOf(HomeSection.REFEREE) }
     
     val configuration = LocalConfiguration.current
@@ -82,10 +86,10 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                 }
                 Row(modifier = Modifier.fillMaxWidth()) {
                     GridItem(
-                        icon = Icons.Rounded.Groups,
-                        label = "Team",
-                        isActive = activeSection == HomeSection.TEAM,
-                        onClick = { activeSection = HomeSection.TEAM },
+                        icon = Icons.Rounded.SportsScore,
+                        label = "Match",
+                        isActive = activeSection == HomeSection.MATCH,
+                        onClick = { activeSection = HomeSection.MATCH },
                         modifier = Modifier.weight(1f)
                     )
                     GridItem(
@@ -104,7 +108,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                     .weight(1f)
                     .fillMaxHeight()
             ) {
-                ContentArea(activeSection = activeSection, viewModel = viewModel)
+                ContentArea(activeSection = activeSection, viewModel = viewModel, onNavigateToRooms = onNavigateToRooms)
             }
         }
     } else {
@@ -138,10 +142,10 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                 }
                 Row(modifier = Modifier.fillMaxWidth()) {
                     GridItem(
-                        icon = Icons.Rounded.Groups,
-                        label = "Team",
-                        isActive = activeSection == HomeSection.TEAM,
-                        onClick = { activeSection = HomeSection.TEAM },
+                        icon = Icons.Rounded.SportsScore,
+                        label = "Match",
+                        isActive = activeSection == HomeSection.MATCH,
+                        onClick = { activeSection = HomeSection.MATCH },
                         modifier = Modifier.weight(1f)
                     )
                     GridItem(
@@ -156,7 +160,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
 
             // Content Area
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                ContentArea(activeSection = activeSection, viewModel = viewModel)
+                ContentArea(activeSection = activeSection, viewModel = viewModel, onNavigateToRooms = onNavigateToRooms)
             }
         }
     }
@@ -165,7 +169,8 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
 @Composable
 private fun ContentArea(
     activeSection: HomeSection,
-    viewModel: HomeViewModel
+    viewModel: HomeViewModel,
+    onNavigateToRooms: () -> Unit
 ) {
     AnimatedVisibility(
         visible = activeSection == HomeSection.REFEREE,
@@ -180,15 +185,15 @@ private fun ContentArea(
         enter = fadeIn() + expandVertically(),
         exit = fadeOut() + shrinkVertically()
     ) {
-        RoomSection(viewModel)
+        RoomSection(viewModel, onNavigateToRooms)
     }
 
     AnimatedVisibility(
-        visible = activeSection == HomeSection.TEAM,
+        visible = activeSection == HomeSection.MATCH,
         enter = fadeIn() + expandVertically(),
         exit = fadeOut() + shrinkVertically()
     ) {
-        TeamSection(viewModel)
+        MatchSection(viewModel)
     }
 
     AnimatedVisibility(
@@ -337,7 +342,7 @@ private fun RefereeSection(viewModel: HomeViewModel) {
 }
 
 @Composable
-private fun RoomSection(viewModel: HomeViewModel) {
+private fun RoomSection(viewModel: HomeViewModel, onNavigateToRooms: () -> Unit) {
     XrefCard(title = "ROOM SETUP") {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -357,7 +362,10 @@ private fun RoomSection(viewModel: HomeViewModel) {
                 )
                 XrefButton(
                     text = "JOIN",
-                    onClick = { viewModel.joinBroadcastRoom() },
+                    onClick = { 
+                        viewModel.joinBroadcastRoom()
+                        onNavigateToRooms()
+                    },
                     modifier = Modifier.width(54.dp),
                     height = 42.dp,
                     enabled = viewModel.isRefereeConnected,
@@ -394,7 +402,10 @@ private fun RoomSection(viewModel: HomeViewModel) {
                     
                     XrefButton(
                         text = "JOIN",
-                        onClick = { viewModel.joinBattleRoom(index) },
+                        onClick = { 
+                            viewModel.joinBattleRoom(index)
+                            onNavigateToRooms()
+                        },
                         modifier = Modifier.width(54.dp),
                         height = 42.dp,
                         enabled = viewModel.isRefereeConnected,
@@ -447,7 +458,10 @@ private fun RoomSection(viewModel: HomeViewModel) {
                 )
                 XrefButton(
                     text = "JOIN ALL",
-                    onClick = { viewModel.joinRooms() },
+                    onClick = { 
+                        viewModel.joinRooms()
+                        onNavigateToRooms()
+                    },
                     modifier = Modifier.weight(1f),
                     enabled = viewModel.isRefereeConnected
                 )
@@ -464,42 +478,142 @@ private fun RoomSection(viewModel: HomeViewModel) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TeamSection(viewModel: HomeViewModel) {
-    XrefCard(title = "PARTICIPANTS_LIST", modifier = Modifier.fillMaxHeight()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            XrefButton(
-                text = "8 TEAMS ${if (viewModel.bracketSize == 8) "✔" else ""}",
-                onClick = { viewModel.changeBracketSize(8) },
-                modifier = Modifier.weight(1f),
-                enabled = viewModel.bracketSize != 8
-            )
-            XrefButton(
-                text = "16 TEAMS ${if (viewModel.bracketSize == 16) "✔" else ""}",
-                onClick = { viewModel.changeBracketSize(16) },
-                modifier = Modifier.weight(1f),
-                enabled = viewModel.bracketSize != 16
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f, fill = false)
-        ) {
-            itemsIndexed(viewModel.participants) { index, participant ->
-                XrefTextField(
-                    value = participant,
-                    onValueChange = { newValue -> viewModel.updateParticipant(index, newValue) },
-                    label = "Team ${index + 1}",
-                    modifier = Modifier.padding(vertical = 4.dp)
+private fun MatchSection(viewModel: HomeViewModel) {
+    XrefCard(title = "OPEN MATCH SETUP", modifier = Modifier.fillMaxHeight()) {
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Dropdown for Team Count
+            var expanded by remember { mutableStateOf(false) }
+            val options = listOf(8, 16, 32, 64)
+            
+            Column {
+                Text(
+                    text = "TEAM COUNT",
+                    color = TextDim,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 4.dp, start = 4.dp)
                 )
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = "${viewModel.bracketSize} TEAMS",
+                        onValueChange = {},
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            color = NeonGreen,
+                            fontSize = 13.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = NeonGreen,
+                            unfocusedBorderColor = DarkGreen700,
+                            focusedContainerColor = DarkGreen900,
+                            unfocusedContainerColor = DarkGreen900
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false },
+                        modifier = Modifier.background(DarkGreen800)
+                    ) {
+                        options.forEach { option ->
+                            DropdownMenuItem(
+                                text = { 
+                                    Text(
+                                        "$option TEAMS", 
+                                        color = NeonGreen,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 13.sp
+                                    ) 
+                                },
+                                onClick = {
+                                    viewModel.changeBracketSize(option)
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Registration Fee Section
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(DarkGreen900)
+                    .border(1.dp, DarkGreen700, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = viewModel.isRegistrationFeeEnabled,
+                    onCheckedChange = { viewModel.updateRegistrationFee(it) },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = NeonGreen,
+                        uncheckedColor = TextDim,
+                        checkmarkColor = DarkBackground
+                    )
+                )
+                Text(
+                    text = "REGISTRATION FEE",
+                    color = if (viewModel.isRegistrationFeeEnabled) NeonGreen else TextDim,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f)
+                )
+                
+                if (viewModel.isRegistrationFeeEnabled) {
+                    XrefTextField(
+                        value = viewModel.registrationFeeNominal,
+                        onValueChange = { viewModel.updateRegistrationFeeNominal(it) },
+                        label = "CREDITS",
+                        modifier = Modifier.width(100.dp)
+                    )
+                } else {
+                    Text(
+                        text = "FREE",
+                        color = NeonGreen.copy(alpha = 0.5f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            HorizontalDivider(color = DarkGreen700, thickness = 1.dp)
+            
+            Text(
+                text = "PARTICIPANTS LIST",
+                color = TextDim,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                itemsIndexed(viewModel.participants) { index, participant ->
+                    XrefTextField(
+                        value = participant,
+                        onValueChange = { newValue -> viewModel.updateParticipant(index, newValue) },
+                        label = "Team ${index + 1}",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         }
     }
