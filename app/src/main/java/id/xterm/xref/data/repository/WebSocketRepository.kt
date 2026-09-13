@@ -152,11 +152,9 @@ class WebSocketRepository @Inject constructor() {
         pingJobs.remove(connectionType)
     }
 
-    fun joinRoom(room: String) {
+    fun joinRoom(room: String, connectionType: String) {
         val req = JoinRoomRequest(room = room)
-        // Default join room using referee session if available
-        val activeClient = webSocketClients["REFEREE"] ?: webSocketClients["BROADCAST"]
-        activeClient?.send(json.encodeToString(req))
+        webSocketClients[connectionType]?.send(json.encodeToString(req))
     }
 
     fun disconnectSession(connectionType: String) {

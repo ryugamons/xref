@@ -18,7 +18,10 @@ class HomeViewModel : ViewModel() {
     var password by mutableStateOf("")
     var broadcastId by mutableStateOf("")
     var broadcastPassword by mutableStateOf("")
-    var roomId by mutableStateOf("")
+    
+    // Room states
+    var broadcastRoom by mutableStateOf("")
+    val battleRooms = mutableStateListOf<String>()
 
     var refereeCredits by mutableStateOf("0.00 CR")
     var broadcastCredits by mutableStateOf("0.00 CR")
@@ -32,12 +35,20 @@ class HomeViewModel : ViewModel() {
     var broadcastStatusText by mutableStateOf("offline")
 
     init {
-        // Load saved credentials
+        // Load saved credentials and rooms
         viewModelScope.launch {
             refereeId = AuthPreferences.getRefereeId()
             password = AuthPreferences.getRefereePassword()
             broadcastId = AuthPreferences.getBroadcastId()
             broadcastPassword = AuthPreferences.getBroadcastPassword()
+            
+            broadcastRoom = AuthPreferences.getBroadcastRoom()
+            val savedBattleRooms = AuthPreferences.getBattleRooms()
+            if (savedBattleRooms.isEmpty()) {
+                battleRooms.add("") // Default one empty field
+            } else {
+                battleRooms.addAll(savedBattleRooms)
+            }
         }
 
         // Listen to Referee connection states
@@ -117,9 +128,58 @@ class HomeViewModel : ViewModel() {
         webSocketRepository.disconnectSession("BROADCAST")
     }
 
-    fun joinRoom() {
-        if (roomId.isNotEmpty()) {
-            webSocketRepository.joinRoom(roomId)
+    // Room management
+    fun updateBattleRoom(index: Int, name: String) {
+        if (index in battleRooms.indices) {
+            battleRooms[index] = name
+            saveRoomPrefs()
+        }
+    }
+
+    fun addBattleRoom() {
+        battleRooms.add("")
+        saveRoomPrefs()
+    }
+
+    fun removeBattleRoom(index: Int) {
+        if (battleRooms.size > 1) {
+            battleRooms.removeAt(index)
+            saveRoomPrefs()
+        }
+    }
+
+    fun updateBroadcastRoom(name: String) {
+        broadcastRoom = name
+        saveRoomPrefs()
+    }
+
+    private fun saveRoomPrefs() {
+        viewModelScope.launch {
+            AuthPreferences.saveRooms(broadcastRoom, battleRooms.toList())
+        }
+    }
+
+    fun joinBroadcastRoom() {
+        if (broadcastRoom.isNotEmpty()) {
+            webSocketRepository.joinRoom(broadcastRoom, "BROADCAST")
+        }
+    }
+
+    fun joinBattleRoom(index: Int) {
+        val room = battleRooms.getOrNull(index)
+        if (!room.isNullOrEmpty()) {
+            webSocketRepository.joinRoom(room, "REFEREE")
+        }
+    }
+
+    fun joinRooms() {
+        if (broadcastRoom.isNotEmpty()) {
+            webSocketRepository.joinRoom(broadcastRoom, "BROADCAST")
+        }
+        battleRooms.forEach { room ->
+            if (room.isNotEmpty()) {
+                webSocketRepository.joinRoom(room, "REFEREE")
+            }
         }
     }
     

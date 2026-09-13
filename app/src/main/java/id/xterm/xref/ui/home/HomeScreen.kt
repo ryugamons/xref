@@ -338,23 +338,91 @@ private fun RefereeSection(viewModel: HomeViewModel) {
 @Composable
 private fun RoomSection(viewModel: HomeViewModel) {
     XrefCard(title = "ROOM_CONFIG") {
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.Bottom
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            XrefTextField(
-                value = viewModel.roomId,
-                onValueChange = { newRoomId -> viewModel.roomId = newRoomId },
-                label = "Room Name/ID",
-                modifier = Modifier.weight(1f)
-            )
-            XrefButton(
-                text = "JOIN",
-                onClick = { viewModel.joinRoom() },
-                modifier = Modifier.width(80.dp),
-                enabled = viewModel.isRefereeConnected || viewModel.isBroadcastConnected
-            )
+            // Broadcast Room Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                XrefTextField(
+                    value = viewModel.broadcastRoom,
+                    onValueChange = { viewModel.updateBroadcastRoom(it) },
+                    label = "Broadcast Room",
+                    modifier = Modifier.weight(1f)
+                )
+                XrefButton(
+                    text = "JOIN",
+                    onClick = { viewModel.joinBroadcastRoom() },
+                    modifier = Modifier.width(70.dp),
+                    height = 42.dp,
+                    enabled = viewModel.isBroadcastConnected
+                )
+            }
+
+            // Dynamic Battle Rooms List
+            viewModel.battleRooms.forEachIndexed { index, room ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    XrefTextField(
+                        value = room,
+                        onValueChange = { viewModel.updateBattleRoom(index, it) },
+                        label = "Battle Room ${index + 1}",
+                        modifier = Modifier.weight(1f)
+                    )
+                    
+                    XrefButton(
+                        text = "JOIN",
+                        onClick = { viewModel.joinBattleRoom(index) },
+                        modifier = Modifier.width(70.dp),
+                        height = 42.dp,
+                        enabled = viewModel.isRefereeConnected
+                    )
+                    
+                    if (viewModel.battleRooms.size > 1) {
+                        IconButton(
+                            onClick = { viewModel.removeBattleRoom(index) },
+                            modifier = Modifier
+                                .padding(bottom = 2.dp)
+                                .size(38.dp)
+                                .background(Color(0x22FF5252), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0x44FF5252), RoundedCornerShape(8.dp))
+                        ) {
+                            Text(
+                                text = "×",
+                                color = Color(0xFFFF5252),
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Light
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                XrefButton(
+                    text = "ADD ROOM",
+                    onClick = { viewModel.addBattleRoom() },
+                    modifier = Modifier.weight(1f),
+                    containerColor = DarkGreen700,
+                    contentColor = NeonGreen
+                )
+                XrefButton(
+                    text = "JOIN ALL",
+                    onClick = { viewModel.joinRooms() },
+                    modifier = Modifier.weight(1f),
+                    enabled = viewModel.isRefereeConnected || viewModel.isBroadcastConnected
+                )
+            }
         }
     }
 }

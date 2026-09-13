@@ -21,13 +21,14 @@ fun XrefButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     containerColor: androidx.compose.ui.graphics.Color = NeonGreen,
-    contentColor: androidx.compose.ui.graphics.Color = DarkGreen900
+    contentColor: androidx.compose.ui.graphics.Color = DarkGreen900,
+    height: androidx.compose.ui.unit.Dp = 48.dp
 ) {
     Button(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .height(48.dp),
+            .height(height),
         enabled = enabled,
         shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(

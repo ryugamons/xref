@@ -55,9 +55,9 @@ fun DashboardScreen(
             .padding(16.dp)
     ) {
         // Room Info
-        if (homeViewModel.roomId.isNotEmpty()) {
+        if (homeViewModel.broadcastRoom.isNotEmpty()) {
             Text(
-                text = "ROOM: ${homeViewModel.roomId.uppercase()}",
+                text = "ROOM: ${homeViewModel.broadcastRoom.uppercase()}",
                 color = NeonGreen.copy(alpha = 0.5f),
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
