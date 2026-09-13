@@ -28,6 +28,13 @@ data class LeaveRoomRequest(
 )
 
 @Serializable
+data class SendMessageRequest(
+    val type: String = "room.send_message",
+    val room: String,
+    val message: String
+)
+
+@Serializable
 data class SessionReadyData(
     val developer: DeveloperData? = null,
     val wallet: WalletData? = null
@@ -70,3 +77,34 @@ data class KickEvent(
     val type: String = "room.kick",
     val data: KickData
 )
+
+@Serializable
+data class RoomTextData(
+    val room: String,
+    @SerialName("event_type")
+    val eventType: String? = null,
+    val username: String? = null,
+    val text: String? = null,
+    @SerialName("message_kind")
+    val messageKind: String? = null,
+    val time: String? = null
+)
+
+@Serializable
+data class RoomTextEvent(
+    val type: String,
+    val data: RoomTextData
+)
+
+data class ChatMessage(
+    val room: String,
+    val username: String,
+    val text: String,
+    val time: String,
+    val type: MessageType,
+    val eventType: String? = null
+)
+
+enum class MessageType {
+    TEXT, ACTION, PRESENCE, SYSTEM
+}

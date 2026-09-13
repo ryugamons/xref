@@ -2,10 +2,14 @@ package id.xterm.xref.ui.home
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import id.xterm.xref.core.websocket.ChatMessage
+import id.xterm.xref.core.websocket.MessageType
 import id.xterm.xref.data.repository.ConnectionState
 import id.xterm.xref.data.repository.WebSocketRepository
 import id.xterm.xref.data.storage.AuthPreferences
@@ -33,6 +37,11 @@ class HomeViewModel : ViewModel() {
     
     var refereeStatusText by mutableStateOf("offline")
     var starterStatusText by mutableStateOf("offline")
+
+    // Active rooms tracking
+    val activeRooms = webSocketRepository.activeRooms
+    private val _roomMessagesMap = mutableStateMapOf<String, SnapshotStateList<ChatMessage>>()
+    val roomMessagesMap: Map<String, List<ChatMessage>> = _roomMessagesMap
 
     init {
         // Load saved credentials and rooms
@@ -94,6 +103,18 @@ class HomeViewModel : ViewModel() {
                 starterCredits = balance
             }
         }
+
+        // Listen to room messages
+        viewModelScope.launch {
+            webSocketRepository.roomMessages.collect { (roomName, message) ->
+                val list = _roomMessagesMap.getOrPut(roomName) { mutableStateListOf() }
+                list.add(message)
+                // Keep only last 100 messages per room
+                if (list.size > 100) {
+                    list.removeAt(0)
+                }
+            }
+        }
     }
     
     val participants = mutableStateListOf(
@@ -131,7 +152,7 @@ class HomeViewModel : ViewModel() {
     // Room management
     fun updateBattleRoom(index: Int, name: String) {
         if (index in battleRooms.indices) {
-            battleRooms[index] = name
+            battleRooms[index] = name.lowercase()
             saveRoomPrefs()
         }
     }
@@ -149,7 +170,7 @@ class HomeViewModel : ViewModel() {
     }
 
     fun updateBroadcastRoom(name: String) {
-        broadcastRoom = name
+        broadcastRoom = name.lowercase()
         saveRoomPrefs()
     }
 
@@ -184,6 +205,12 @@ class HomeViewModel : ViewModel() {
         val room = battleRooms.getOrNull(index)
         if (!room.isNullOrEmpty()) {
             webSocketRepository.leaveRoom(room, "REFEREE")
+        }
+    }
+
+    fun sendRoomMessage(room: String, message: String) {
+        if (message.isNotEmpty()) {
+            webSocketRepository.sendMessage(room, message, "REFEREE")
         }
     }
 

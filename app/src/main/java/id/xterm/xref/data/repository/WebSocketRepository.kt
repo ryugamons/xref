@@ -58,6 +58,12 @@ class WebSocketRepository @Inject constructor() {
 
     private val _events = MutableSharedFlow<JsonObject>(extraBufferCapacity = 64)
     val events = _events.asSharedFlow()
+    
+    private val _roomMessages = MutableSharedFlow<Pair<String, ChatMessage>>(extraBufferCapacity = 128)
+    val roomMessages = _roomMessages.asSharedFlow()
+
+    private val _activeRooms = MutableStateFlow<Set<String>>(emptySet())
+    val activeRooms = _activeRooms.asStateFlow()
 
     private val repositoryScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
@@ -110,12 +116,76 @@ class WebSocketRepository @Inject constructor() {
                             }
                         }
                         "error" -> {
-                            stopPingScheduler(connectionType)
                             val dataObj = jsonObject.get("data")?.jsonObject
+                            val errorCode = dataObj?.get("error")?.jsonPrimitive?.contentOrNull
+                            
+                            // Only stop ping if it's a session-terminal error (auth required or session failure)
+                            if (errorCode == "auth_required" || errorCode == "session_expired") {
+                                stopPingScheduler(connectionType)
+                            }
+                            
                             val errorMsg = dataObj?.get("message")?.jsonPrimitive?.contentOrNull 
                                 ?: jsonObject.get("message")?.jsonPrimitive?.contentOrNull 
                                 ?: "Unknown error"
                             stateFlow.value = ConnectionState.Error(errorMsg)
+                        }
+                        "room.text" -> {
+                            val dataObj = jsonObject.get("data")?.jsonObject ?: return
+                            val roomName = dataObj["room"]?.jsonPrimitive?.contentOrNull ?: return
+                            val eventType = dataObj["event_type"]?.jsonPrimitive?.contentOrNull
+                            val username = dataObj["username"]?.jsonPrimitive?.contentOrNull ?: "system"
+                            val text = dataObj["text"]?.jsonPrimitive?.contentOrNull ?: ""
+                            val time = dataObj["time"]?.jsonPrimitive?.contentOrNull ?: ""
+                            val kind = dataObj["message_kind"]?.jsonPrimitive?.contentOrNull ?: "text"
+                            
+                            val msgType = when(kind) {
+                                "action" -> MessageType.ACTION
+                                "presence" -> MessageType.PRESENCE
+                                else -> MessageType.TEXT
+                            }
+                            
+                            repositoryScope.launch {
+                                _roomMessages.emit(roomName.lowercase() to ChatMessage(roomName.lowercase(), username, text, time, msgType, eventType))
+                            }
+                        }
+                        "room.join.result" -> {
+                            val dataObj = jsonObject.get("data")?.jsonObject
+                            val innerData = dataObj?.get("data")?.jsonObject
+                            val roomName = innerData?.get("room")?.jsonPrimitive?.contentOrNull 
+                                ?: dataObj?.get("room")?.jsonPrimitive?.contentOrNull
+                            if (roomName != null) {
+                                val normalizedRoom = roomName.lowercase()
+                                if (!_activeRooms.value.contains(normalizedRoom)) {
+                                    _activeRooms.value = _activeRooms.value + normalizedRoom
+                                }
+                            }
+                        }
+                        "room.subscribed" -> {
+                            val dataObj = jsonObject.get("data")?.jsonObject
+                            val roomName = dataObj?.get("room")?.jsonPrimitive?.contentOrNull
+                            if (roomName != null) {
+                                val normalizedRoom = roomName.lowercase()
+                                if (!_activeRooms.value.contains(normalizedRoom)) {
+                                    _activeRooms.value = _activeRooms.value + normalizedRoom
+                                }
+                            }
+                        }
+                        "room.leave.result" -> {
+                            val dataObj = jsonObject.get("data")?.jsonObject
+                            val innerData = dataObj?.get("data")?.jsonObject
+                            val roomName = innerData?.get("room")?.jsonPrimitive?.contentOrNull
+                                ?: dataObj?.get("room")?.jsonPrimitive?.contentOrNull
+                            if (roomName != null) {
+                                _activeRooms.value = _activeRooms.value - roomName.lowercase()
+                            }
+                        }
+                        "room.text.error" -> {
+                            val dataObj = jsonObject.get("data")?.jsonObject
+                            val roomName = dataObj?.get("room")?.jsonPrimitive?.contentOrNull
+                            val message = dataObj?.get("message")?.jsonPrimitive?.contentOrNull
+                            if (roomName != null && message?.contains("no longer available", ignoreCase = true) == true) {
+                                _activeRooms.value = _activeRooms.value - roomName.lowercase()
+                            }
                         }
                     }
                 }
@@ -153,13 +223,21 @@ class WebSocketRepository @Inject constructor() {
     }
 
     fun joinRoom(room: String, connectionType: String) {
-        val req = JoinRoomRequest(room = room)
+        val req = JoinRoomRequest(room = room.lowercase())
         webSocketClients[connectionType]?.send(json.encodeToString(req))
     }
 
     fun leaveRoom(room: String, connectionType: String) {
-        val req = LeaveRoomRequest(room = room)
+        val req = LeaveRoomRequest(room = room.lowercase())
         webSocketClients[connectionType]?.send(json.encodeToString(req))
+    }
+
+    fun sendMessage(room: String, message: String, connectionType: String) {
+        // Split message if it exceeds 255 characters
+        message.chunked(255).forEach { chunk ->
+            val req = SendMessageRequest(room = room.lowercase(), message = chunk)
+            webSocketClients[connectionType]?.send(json.encodeToString(req))
+        }
     }
 
     fun disconnectSession(connectionType: String) {

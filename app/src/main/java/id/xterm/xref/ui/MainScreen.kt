@@ -178,7 +178,7 @@ fun MainScreen(
                         }
                     )
                     BottomTab.Statistics -> StatisticsScreen(matchManager)
-                    BottomTab.Room -> RoomScreen(matchManager)
+                    BottomTab.Room -> RoomScreen(homeViewModel)
                     BottomTab.Dashboard -> DashboardScreen(dashboardViewModel, homeViewModel)
                 }
             }
@@ -194,9 +194,9 @@ fun ScreenPlaceholder(title: String) {
 }
 
 enum class BottomTab(val label: String, val icon: ImageVector, val destination: Destination) {
-    Home("Home", Icons.Rounded.Home, Destination.Home),
+    Home("Dashboard", Icons.Rounded.Home, Destination.Home),
+    Room("Rooms", Icons.AutoMirrored.Rounded.Chat, Destination.Room),
     Bracket("Bracket", Icons.AutoMirrored.Rounded.List, Destination.Bracket),
     Statistics("Stats", Icons.Rounded.Assessment, Destination.Statistics),
-    Room("Room", Icons.AutoMirrored.Rounded.Chat, Destination.Room),
-    Dashboard("Dash", Icons.Rounded.Sports, Destination.Dashboard)
+    Dashboard("Arena", Icons.Rounded.Sports, Destination.Dashboard)
 }
