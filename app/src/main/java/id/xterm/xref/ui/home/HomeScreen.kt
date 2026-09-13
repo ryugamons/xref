@@ -545,81 +545,86 @@ private fun MatchSection(viewModel: HomeViewModel) {
                 }
             }
 
-            // Registration Fee Section
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(DarkGreen900)
-                    .border(1.dp, DarkGreen700, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Checkbox(
-                    checked = viewModel.isRegistrationFeeEnabled,
-                    onCheckedChange = { viewModel.updateRegistrationFee(it) },
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = NeonGreen,
-                        uncheckedColor = TextDim,
-                        checkmarkColor = DarkBackground
-                    )
-                )
-                Text(
-                    text = "REGISTRATION FEE",
-                    color = if (viewModel.isRegistrationFeeEnabled) NeonGreen else TextDim,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.weight(1f)
-                )
-                
-                if (viewModel.isRegistrationFeeEnabled) {
-                    XrefTextField(
-                        value = viewModel.registrationFeeNominal,
-                        onValueChange = { viewModel.updateRegistrationFeeNominal(it) },
-                        label = "CREDITS",
-                        modifier = Modifier.width(100.dp)
-                    )
-                } else {
-                    Text(
-                        text = "FREE",
-                        color = NeonGreen.copy(alpha = 0.5f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
-
             Spacer(modifier = Modifier.height(16.dp))
 
-            // OPEN / CLOSE MATCH Button
+            // DYNAMIC MATCH BUTTON
+            val buttonText = when (viewModel.matchPhase) {
+                MatchPhase.IDLE -> "OPEN REGISTRATION"
+                MatchPhase.REGISTRATION -> "START ROLL (MANUAL)"
+                MatchPhase.ROLLING -> "WAITING FOR ROLLS..."
+                MatchPhase.COMPLETED -> "RE-OPEN MATCH"
+            }
+            
+            val isButtonEnabled = when (viewModel.matchPhase) {
+                MatchPhase.IDLE -> viewModel.isRefereeConnected
+                MatchPhase.REGISTRATION -> viewModel.registeredParticipants.isNotEmpty()
+                MatchPhase.ROLLING -> false
+                MatchPhase.COMPLETED -> true
+            }
+
             XrefButton(
-                text = if (viewModel.isMatchOpen) "STOP BROADCAST" else "OPEN REGISTRATION",
-                onClick = { viewModel.toggleMatchStatus() },
+                text = buttonText,
+                onClick = { 
+                    when (viewModel.matchPhase) {
+                        MatchPhase.IDLE -> viewModel.toggleMatchRegistration()
+                        MatchPhase.REGISTRATION -> viewModel.startRollPhaseManually()
+                        MatchPhase.COMPLETED -> viewModel.toggleMatchRegistration()
+                        else -> {}
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
                 height = 56.dp,
-                enabled = viewModel.isRefereeConnected,
-                containerColor = if (viewModel.isMatchOpen) Color(0xFFFF5252) else NeonGreen,
-                contentColor = if (viewModel.isMatchOpen) Color.Black else Color.Black
+                enabled = isButtonEnabled,
+                containerColor = when (viewModel.matchPhase) {
+                    MatchPhase.REGISTRATION -> Color(0xFFFFB300)
+                    MatchPhase.ROLLING -> Color.Gray
+                    else -> NeonGreen
+                },
+                contentColor = Color.Black
             )
             
-            if (viewModel.isMatchOpen) {
+            // Participants List Card
+            if (viewModel.registeredParticipants.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                XrefCard(title = "REGISTERED PARTICIPANTS (${viewModel.registeredParticipants.size}/${viewModel.bracketSize})") {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        viewModel.registeredParticipants.forEach { participant ->
+                            val roll = viewModel.participantRolls[participant]
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = participant,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = roll?.toString() ?: "PENDING",
+                                    color = if (roll != null) NeonGreen else TextDim,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (viewModel.matchPhase != MatchPhase.IDLE) {
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "BROADCASTING EVERY 60S...",
+                    text = when (viewModel.matchPhase) {
+                        MatchPhase.REGISTRATION -> "BROADCASTING EVERY ${viewModel.broadcastIntervalSeconds}S..."
+                        MatchPhase.ROLLING -> "WAITING FOR PARTICIPANTS TO TYPE /roll"
+                        else -> "MATCH SETUP COMPLETED"
+                    },
                     color = NeonGreen.copy(alpha = 0.7f),
                     fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                Text(
-                    text = "REGISTERED: ${viewModel.registeredParticipants.size}/${viewModel.bracketSize}",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.align(Alignment.CenterHorizontally)
                 )

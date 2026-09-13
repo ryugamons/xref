@@ -20,6 +20,10 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
+enum class MatchPhase {
+    IDLE, REGISTRATION, ROLLING, COMPLETED
+}
+
 class HomeViewModel : ViewModel() {
     private val webSocketRepository = WebSocketRepository.getInstance()
 
@@ -42,8 +46,10 @@ class HomeViewModel : ViewModel() {
     var broadcastIntervalSeconds by mutableStateOf(60)
 
     // Match Active State
-    var isMatchOpen by mutableStateOf(false)
+    var matchPhase by mutableStateOf(MatchPhase.IDLE)
     val registeredParticipants = mutableStateListOf<String>()
+    val participantRolls = mutableStateMapOf<String, Int>()
+    
     private var broadcastJob: Job? = null
     private var historyCheckJob: Job? = null
 
@@ -101,7 +107,7 @@ class HomeViewModel : ViewModel() {
                     is ConnectionState.Connecting -> refereeStatusText = "connecting"
                     is ConnectionState.Disconnected, ConnectionState.Idle -> {
                         refereeStatusText = "offline"
-                        if (isMatchOpen) toggleMatchStatus() 
+                        if (matchPhase != MatchPhase.IDLE) resetMatch()
                     }
                     is ConnectionState.Error -> {
                         refereeStatusText = if (state.message.contains("Broken pipe", ignoreCase = true) || 
@@ -140,10 +146,10 @@ class HomeViewModel : ViewModel() {
         // Listen to wallet updates for all users
         viewModelScope.launch {
             webSocketRepository.events.collect { json ->
-                if (json["type"]?.jsonPrimitive?.content == "wallet.updated" && isMatchOpen) {
+                if (json["type"]?.jsonPrimitive?.content == "wallet.updated" && matchPhase == MatchPhase.REGISTRATION) {
                     val usernameInPacket = json["username"]?.jsonPrimitive?.content
                     
-                    // If our own balance updated, fetch history (throttled)
+                    // If our own balance updated, it might be a transfer
                     if (usernameInPacket == refereeId) {
                         checkWalletHistoryThrottled()
                     }
@@ -154,9 +160,7 @@ class HomeViewModel : ViewModel() {
                         if (!registeredParticipants.contains(usernameInPacket) && registeredParticipants.size < bracketSize) {
                             registeredParticipants.add(usernameInPacket)
                             sendRegistrationProgress(usernameInPacket, 0L, 0L)
-                            if (registeredParticipants.size >= bracketSize) {
-                                toggleMatchStatus()
-                            }
+                            checkRegistrationFull()
                         }
                     }
                 }
@@ -183,14 +187,29 @@ class HomeViewModel : ViewModel() {
                 val roomName = pair.first
                 val message = pair.second
                 
-                // Detect transfer message from system
-                if (isMatchOpen && message.username == "system") {
+                // 1. Detect transfer message from system
+                if (matchPhase == MatchPhase.REGISTRATION && message.username == "system") {
                     val regex = "([a-zA-Z0-9_]+) transferred ([0-9]+) credits".toRegex(RegexOption.IGNORE_CASE)
                     val match = regex.find(message.text)
                     if (match != null) {
                         val sender = match.groupValues[1]
                         val amountCr = match.groupValues[2].toLongOrNull() ?: 0L
                         processTransfer(sender, amountCr * 1000)
+                    }
+                }
+
+                // 2. Detect Roll results: ** hex rolls 6 **
+                if (matchPhase == MatchPhase.ROLLING) {
+                    val rollRegex = "\\*\\*\\s+([a-zA-Z0-9_]+)\\s+rolls\\s+([0-9]+)\\s+\\*\\*".toRegex(RegexOption.IGNORE_CASE)
+                    val rollMatch = rollRegex.find(message.text)
+                    if (rollMatch != null) {
+                        val roller = rollMatch.groupValues[1]
+                        val value = rollMatch.groupValues[2].toIntOrNull() ?: 0
+                        
+                        if (registeredParticipants.contains(roller) && !participantRolls.containsKey(roller)) {
+                            participantRolls[roller] = value
+                            checkAllRollsCompleted()
+                        }
                     }
                 }
 
@@ -202,10 +221,9 @@ class HomeViewModel : ViewModel() {
     }
 
     private fun checkWalletHistoryThrottled() {
-        // Cancel pending job to avoid spamming network calls
         historyCheckJob?.cancel()
         historyCheckJob = viewModelScope.launch {
-            delay(500) // Small delay to debounce rapid wallet updates
+            delay(500) 
             val history = webSocketRepository.getWalletHistory("REFEREE")
             val lastTransfer = history?.transactions?.firstOrNull { it.type == "transfer_in" }
             
@@ -221,23 +239,50 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    fun toggleMatchStatus() {
-        if (!isMatchOpen) {
+    fun toggleMatchRegistration() {
+        if (matchPhase == MatchPhase.IDLE) {
             if (!isRefereeConnected) return
-            isMatchOpen = true
-            startBroadcasting()
+            matchPhase = MatchPhase.REGISTRATION
+            startBroadcastingStatus()
         } else {
-            isMatchOpen = false
-            stopBroadcasting()
-            registeredParticipants.clear()
+            resetMatch()
         }
     }
 
-    private fun startBroadcasting() {
+    private fun resetMatch() {
+        matchPhase = MatchPhase.IDLE
+        stopBroadcasting()
+        registeredParticipants.clear()
+        participantRolls.clear()
+    }
+
+    private fun checkRegistrationFull() {
+        if (registeredParticipants.size >= bracketSize) {
+            matchPhase = MatchPhase.ROLLING
+            // Final registration message
+            sendMatchClosedMessage()
+            // Switch to instruction for Rolling
+            startBroadcastingStatus()
+        }
+    }
+
+    fun startRollPhaseManually() {
+        if (matchPhase == MatchPhase.REGISTRATION) {
+            matchPhase = MatchPhase.ROLLING
+            sendMatchClosedMessage()
+            startBroadcastingStatus()
+        }
+    }
+
+    private fun startBroadcastingStatus() {
         broadcastJob?.cancel()
         broadcastJob = viewModelScope.launch {
             while (isActive) {
-                sendCurrentMatchStatus()
+                when (matchPhase) {
+                    MatchPhase.REGISTRATION -> sendCurrentMatchStatus()
+                    MatchPhase.ROLLING -> sendRollInstructions()
+                    else -> {}
+                }
                 delay(broadcastIntervalSeconds * 1000L) 
             }
         }
@@ -263,8 +308,61 @@ class HomeViewModel : ViewModel() {
         }
     }
 
+    private fun sendRollInstructions() {
+        val normalizedBroadcastRoom = broadcastRoom.lowercase()
+        val isJoinedInBroadcastRoom = activeRooms.value.contains(normalizedBroadcastRoom)
+
+        if (isRefereeConnected && broadcastRoom.isNotEmpty() && isJoinedInBroadcastRoom) {
+            val pendingRolls = registeredParticipants.filter { !participantRolls.containsKey(it) }
+            if (pendingRolls.isNotEmpty()) {
+                val message = "/me [XREF] REGISTRATION FULL. ALL PARTICIPANTS PLEASE SEND /roll NOW! PENDING: [${pendingRolls.joinToString(", ")}]"
+                activeRooms.value.forEach { room ->
+                    webSocketRepository.sendMessage(room, message, "REFEREE")
+                }
+            }
+        }
+    }
+
+    private fun checkAllRollsCompleted() {
+        if (participantRolls.size >= registeredParticipants.size) {
+            matchPhase = MatchPhase.COMPLETED
+            stopBroadcasting()
+            applyRollSeeding()
+        }
+    }
+
+    private fun applyRollSeeding() {
+        // Sorting: High vs Low
+        // Get pairs of (username, roll)
+        val sortedByRoll = participantRolls.toList().sortedByDescending { it.second }
+        
+        val newList = mutableListOf<String>()
+        val n = sortedByRoll.size
+        
+        // High vs Low pairing: 1 vs N, 2 vs N-1, etc.
+        for (i in 0 until n / 2) {
+            newList.add(sortedByRoll[i].first)      // Highest
+            newList.add(sortedByRoll[n - 1 - i].first) // Lowest
+        }
+        
+        // Update the list that BracketScreen uses
+        registeredParticipants.clear()
+        registeredParticipants.addAll(newList)
+        
+        // Broadcast result
+        broadcastSeedingResult()
+    }
+
+    private fun broadcastSeedingResult() {
+        val normalizedBroadcastRoom = broadcastRoom.lowercase()
+        if (isRefereeConnected && activeRooms.value.contains(normalizedBroadcastRoom)) {
+            val message = "/me [XREF] ROLLING COMPLETED. BRACKET GENERATED (HIGH vs LOW). CHECK BRACKET TAB!"
+            webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
+        }
+    }
+
     fun processTransfer(sender: String, amountMilliCr: Long) {
-        if (!isMatchOpen) return
+        if (matchPhase != MatchPhase.REGISTRATION) return
         
         val requiredMilliCr = if (isRegistrationFeeEnabled) {
             registrationFeeNominal.toLongOrNull()?.let { it * 1000 } ?: 0L
@@ -275,7 +373,6 @@ class HomeViewModel : ViewModel() {
                 registeredParticipants.add(sender)
                 
                 val refundMilliCr = if (requiredMilliCr > 0) amountMilliCr - requiredMilliCr else 0L
-                
                 if (refundMilliCr > 0) {
                     viewModelScope.launch {
                         webSocketRepository.sendTransfer(sender, refundMilliCr, walletPin, "REFEREE")
@@ -283,10 +380,7 @@ class HomeViewModel : ViewModel() {
                 }
 
                 sendRegistrationProgress(sender, amountMilliCr / 1000, refundMilliCr / 1000)
-                
-                if (registeredParticipants.size >= bracketSize) {
-                    toggleMatchStatus()
-                }
+                checkRegistrationFull()
             }
         }
     }
@@ -301,10 +395,24 @@ class HomeViewModel : ViewModel() {
             val refundText = if (refundCr > 0) " ${refundCr}CR REFUNDED." else ""
             
             val message = if (isRegistrationFeeEnabled) {
-                "/me [XREF]${username.uppercase()} TRANSFER ${amountCr}CR ✅.$refundText REGISTRATION $count/$total."
+                "/me [XREF] ${username.uppercase()} TRANSFER ${amountCr}CR ✅.$refundText REGISTRATION $count/$total."
             } else {
-                "/me [XREF]${username.uppercase()} JOINED ✅. REGISTRATION $count/$total."
+                "/me [XREF] ${username.uppercase()} JOINED ✅. REGISTRATION $count/$total."
             }
+
+            activeRooms.value.forEach { room ->
+                webSocketRepository.sendMessage(room, message, "REFEREE")
+            }
+        }
+    }
+
+    private fun sendMatchClosedMessage() {
+        val normalizedBroadcastRoom = broadcastRoom.lowercase()
+        val isJoinedInBroadcastRoom = activeRooms.value.contains(normalizedBroadcastRoom)
+
+        if (isRefereeConnected && broadcastRoom.isNotEmpty() && isJoinedInBroadcastRoom) {
+            val joinedText = registeredParticipants.joinToString(", ")
+            val message = "/me [XREF] REGISTRATION CLOSED ($bracketSize/$bracketSize) ✅. PREPARING ROLLING PHASE..."
 
             activeRooms.value.forEach { room ->
                 webSocketRepository.sendMessage(room, message, "REFEREE")
@@ -461,5 +569,10 @@ class HomeViewModel : ViewModel() {
     fun updateBroadcastInterval(seconds: Int) {
         broadcastIntervalSeconds = seconds
         viewModelScope.launch { AuthPreferences.saveBroadcastInterval(seconds) }
+        
+        // Re-start broadcasting to apply the new interval immediately
+        if (matchPhase != MatchPhase.IDLE) {
+            startBroadcastingStatus()
+        }
     }
 }
