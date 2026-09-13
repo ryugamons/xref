@@ -31,8 +31,6 @@ class HomeViewModel : ViewModel() {
     var refereeStatusText by mutableStateOf("offline")
     var broadcastStatusText by mutableStateOf("offline")
 
-    private var currentConnectionType: String? = null
-
     init {
         // Load saved credentials
         viewModelScope.launch {
@@ -42,56 +40,47 @@ class HomeViewModel : ViewModel() {
             broadcastPassword = AuthPreferences.getBroadcastPassword()
         }
 
+        // Listen to Referee connection states
         viewModelScope.launch {
-            webSocketRepository.connectionState.collect { state ->
-                // Update text statuses
-                when (state) {
-                    is ConnectionState.Connected -> {
-                        if (currentConnectionType == "REFEREE") refereeStatusText = "idle"
-                        if (currentConnectionType == "BROADCAST") broadcastStatusText = "idle"
-                    }
-                    is ConnectionState.Connecting -> {
-                        if (currentConnectionType == "REFEREE") refereeStatusText = "connecting"
-                        if (currentConnectionType == "BROADCAST") broadcastStatusText = "connecting"
-                    }
-                    is ConnectionState.Disconnected, ConnectionState.Idle -> {
-                        if (currentConnectionType == "REFEREE") refereeStatusText = "offline"
-                        if (currentConnectionType == "BROADCAST") broadcastStatusText = "offline"
-                    }
-                    is ConnectionState.Error -> {
-                        if (currentConnectionType == "REFEREE") refereeStatusText = "login failed"
-                        if (currentConnectionType == "BROADCAST") broadcastStatusText = "login failed"
-                    }
-                }
-
-                if (currentConnectionType == "REFEREE") {
-                    isRefereeConnected = state is ConnectionState.Connected
-                    isRefereeConnecting = state is ConnectionState.Connecting
-                } else if (currentConnectionType == "BROADCAST") {
-                    isBroadcastConnected = state is ConnectionState.Connected
-                    isBroadcastConnecting = state is ConnectionState.Connecting
-                }
+            webSocketRepository.refereeConnectionState.collect { state ->
+                isRefereeConnected = state is ConnectionState.Connected
+                isRefereeConnecting = state is ConnectionState.Connecting
                 
-                // Handle Disconnected or Error globally to clear connecting states
-                if (state is ConnectionState.Disconnected || state is ConnectionState.Error) {
-                    if (currentConnectionType == "REFEREE") {
-                        isRefereeConnected = false
-                        isRefereeConnecting = false
-                    } else if (currentConnectionType == "BROADCAST") {
-                        isBroadcastConnected = false
-                        isBroadcastConnecting = false
-                    }
+                when (state) {
+                    is ConnectionState.Connected -> refereeStatusText = "idle"
+                    is ConnectionState.Connecting -> refereeStatusText = "connecting"
+                    is ConnectionState.Disconnected, ConnectionState.Idle -> refereeStatusText = "offline"
+                    is ConnectionState.Error -> refereeStatusText = "login failed"
                 }
             }
         }
 
+        // Listen to Broadcast connection states
         viewModelScope.launch {
-            webSocketRepository.walletBalance.collect { balance ->
-                if (currentConnectionType == "REFEREE") {
-                    refereeCredits = balance
-                } else if (currentConnectionType == "BROADCAST") {
-                    broadcastCredits = balance
+            webSocketRepository.broadcastConnectionState.collect { state ->
+                isBroadcastConnected = state is ConnectionState.Connected
+                isBroadcastConnecting = state is ConnectionState.Connecting
+                
+                when (state) {
+                    is ConnectionState.Connected -> broadcastStatusText = "idle"
+                    is ConnectionState.Connecting -> broadcastStatusText = "connecting"
+                    is ConnectionState.Disconnected, ConnectionState.Idle -> broadcastStatusText = "offline"
+                    is ConnectionState.Error -> broadcastStatusText = "login failed"
                 }
+            }
+        }
+
+        // Listen to Referee wallet updates
+        viewModelScope.launch {
+            webSocketRepository.refereeWalletBalance.collect { balance ->
+                refereeCredits = balance
+            }
+        }
+
+        // Listen to Broadcast wallet updates
+        viewModelScope.launch {
+            webSocketRepository.broadcastWalletBalance.collect { balance ->
+                broadcastCredits = balance
             }
         }
     }
@@ -106,46 +95,26 @@ class HomeViewModel : ViewModel() {
     var bracketSize by mutableStateOf(8)
         private set
 
-    val connectionState = webSocketRepository.connectionState
-
-    fun login() {
-        webSocketRepository.connect(refereeId, password)
-    }
-
-    fun logout() {
-        webSocketRepository.disconnect()
-    }
-
     fun connectReferee() {
-        currentConnectionType = "REFEREE"
         viewModelScope.launch {
             AuthPreferences.saveRefereeAuth(refereeId, password)
         }
-        webSocketRepository.connect(refereeId, password)
+        webSocketRepository.connect(refereeId, password, "REFEREE")
     }
 
     fun disconnectReferee() {
-        webSocketRepository.disconnect()
-        currentConnectionType = null
-        isRefereeConnected = false
-        isRefereeConnecting = false
-        refereeStatusText = "offline"
+        webSocketRepository.disconnectSession("REFEREE")
     }
 
     fun connectBroadcast() {
-        currentConnectionType = "BROADCAST"
         viewModelScope.launch {
             AuthPreferences.saveBroadcastAuth(broadcastId, broadcastPassword)
         }
-        webSocketRepository.connect(broadcastId, broadcastPassword)
+        webSocketRepository.connect(broadcastId, broadcastPassword, "BROADCAST")
     }
 
     fun disconnectBroadcast() {
-        webSocketRepository.disconnect()
-        currentConnectionType = null
-        isBroadcastConnected = false
-        isBroadcastConnecting = false
-        broadcastStatusText = "offline"
+        webSocketRepository.disconnectSession("BROADCAST")
     }
 
     fun joinRoom() {

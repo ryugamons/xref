@@ -38,6 +38,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.xterm.xref.core.match.MatchManager
@@ -96,28 +102,38 @@ fun MainScreen(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        text = "XREF",
-                        color = NeonGreen,
-                        fontWeight = FontWeight.Black
-                    )
-                },
-                actions = {
-                    IconButton(onClick = { showInfoDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Rounded.Info,
-                            contentDescription = "Info",
-                            tint = NeonGreen
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = NeonGreen
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
+            ) {
+                // Left spacing dummy
+                androidx.compose.foundation.layout.Spacer(modifier = Modifier.size(24.dp))
+                
+                Text(
+                    text = "XREF",
+                    color = NeonGreen,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 14.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                 )
-            )
+                
+                IconButton(
+                    onClick = { showInfoDialog = true },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Info,
+                        contentDescription = "Info",
+                        tint = NeonGreen,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
         },
         bottomBar = {
             val selectedIndex = pagerState.currentPage

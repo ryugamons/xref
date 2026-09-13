@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -43,88 +44,158 @@ private enum class HomeSection {
 
 @Composable
 fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
-    val connectionState by viewModel.connectionState.collectAsState()
     var activeSection by remember { mutableStateOf(HomeSection.REFEREE) }
+    
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(DarkBackground)
-            .padding(8.dp)
-    ) {
-        // 2x2 Icon Grid
+    if (isLandscape) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DarkBackground)
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Left Side: 2x2 Icon Grid (Fixed width in Landscape)
+            Column(
+                modifier = Modifier
+                    .width(180.dp)
+                    .fillMaxHeight()
+            ) {
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    GridItem(
+                        icon = Icons.Rounded.Person,
+                        label = "Referee",
+                        isActive = activeSection == HomeSection.REFEREE,
+                        onClick = { activeSection = HomeSection.REFEREE },
+                        modifier = Modifier.weight(1f)
+                    )
+                    GridItem(
+                        icon = Icons.Rounded.MeetingRoom,
+                        label = "Room",
+                        isActive = activeSection == HomeSection.ROOM,
+                        onClick = { activeSection = HomeSection.ROOM },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    GridItem(
+                        icon = Icons.Rounded.Groups,
+                        label = "Team",
+                        isActive = activeSection == HomeSection.TEAM,
+                        onClick = { activeSection = HomeSection.TEAM },
+                        modifier = Modifier.weight(1f)
+                    )
+                    GridItem(
+                        icon = Icons.Rounded.Settings,
+                        label = "Settings",
+                        isActive = activeSection == HomeSection.SETTINGS,
+                        onClick = { activeSection = HomeSection.SETTINGS },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            // Right Side: Dynamic Content Area
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            ) {
+                ContentArea(activeSection = activeSection, viewModel = viewModel)
+            }
+        }
+    } else {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp)
+                .fillMaxSize()
+                .background(DarkBackground)
+                .padding(8.dp)
         ) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                GridItem(
-                    icon = Icons.Rounded.Person,
-                    label = "Referee",
-                    isActive = activeSection == HomeSection.REFEREE,
-                    onClick = { activeSection = HomeSection.REFEREE },
-                    modifier = Modifier.weight(1f)
-                )
-                GridItem(
-                    icon = Icons.Rounded.MeetingRoom,
-                    label = "Room",
-                    isActive = activeSection == HomeSection.ROOM,
-                    onClick = { activeSection = HomeSection.ROOM },
-                    modifier = Modifier.weight(1f)
-                )
+            // 2x2 Icon Grid
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    GridItem(
+                        icon = Icons.Rounded.Person,
+                        label = "Referee",
+                        isActive = activeSection == HomeSection.REFEREE,
+                        onClick = { activeSection = HomeSection.REFEREE },
+                        modifier = Modifier.weight(1f)
+                    )
+                    GridItem(
+                        icon = Icons.Rounded.MeetingRoom,
+                        label = "Room",
+                        isActive = activeSection == HomeSection.ROOM,
+                        onClick = { activeSection = HomeSection.ROOM },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    GridItem(
+                        icon = Icons.Rounded.Groups,
+                        label = "Team",
+                        isActive = activeSection == HomeSection.TEAM,
+                        onClick = { activeSection = HomeSection.TEAM },
+                        modifier = Modifier.weight(1f)
+                    )
+                    GridItem(
+                        icon = Icons.Rounded.Settings,
+                        label = "Settings",
+                        isActive = activeSection == HomeSection.SETTINGS,
+                        onClick = { activeSection = HomeSection.SETTINGS },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
-            Row(modifier = Modifier.fillMaxWidth()) {
-                GridItem(
-                    icon = Icons.Rounded.Groups,
-                    label = "Team",
-                    isActive = activeSection == HomeSection.TEAM,
-                    onClick = { activeSection = HomeSection.TEAM },
-                    modifier = Modifier.weight(1f)
-                )
-                GridItem(
-                    icon = Icons.Rounded.Settings,
-                    label = "Settings",
-                    isActive = activeSection == HomeSection.SETTINGS,
-                    onClick = { activeSection = HomeSection.SETTINGS },
-                    modifier = Modifier.weight(1f)
-                )
+
+            // Content Area
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                ContentArea(activeSection = activeSection, viewModel = viewModel)
             }
         }
+    }
+}
 
-        // Content Area with Animations
-        AnimatedVisibility(
-            visible = activeSection == HomeSection.REFEREE,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            RefereeSection(viewModel)
-        }
+@Composable
+private fun ContentArea(
+    activeSection: HomeSection,
+    viewModel: HomeViewModel
+) {
+    AnimatedVisibility(
+        visible = activeSection == HomeSection.REFEREE,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically()
+    ) {
+        RefereeSection(viewModel)
+    }
 
-        AnimatedVisibility(
-            visible = activeSection == HomeSection.ROOM,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            RoomSection(viewModel, connectionState)
-        }
+    AnimatedVisibility(
+        visible = activeSection == HomeSection.ROOM,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically()
+    ) {
+        RoomSection(viewModel)
+    }
 
-        AnimatedVisibility(
-            visible = activeSection == HomeSection.TEAM,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
-            modifier = Modifier.weight(1f)
-        ) {
-            TeamSection(viewModel)
-        }
+    AnimatedVisibility(
+        visible = activeSection == HomeSection.TEAM,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically()
+    ) {
+        TeamSection(viewModel)
+    }
 
-        AnimatedVisibility(
-            visible = activeSection == HomeSection.SETTINGS,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            SettingsSection()
-        }
+    AnimatedVisibility(
+        visible = activeSection == HomeSection.SETTINGS,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically()
+    ) {
+        SettingsSection()
     }
 }
 
@@ -265,7 +336,7 @@ private fun RefereeSection(viewModel: HomeViewModel) {
 }
 
 @Composable
-private fun RoomSection(viewModel: HomeViewModel, connectionState: ConnectionState) {
+private fun RoomSection(viewModel: HomeViewModel) {
     XrefCard(title = "ROOM_CONFIG") {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -282,7 +353,7 @@ private fun RoomSection(viewModel: HomeViewModel, connectionState: ConnectionSta
                 text = "JOIN",
                 onClick = { viewModel.joinRoom() },
                 modifier = Modifier.width(80.dp),
-                enabled = connectionState is ConnectionState.Connected
+                enabled = viewModel.isRefereeConnected || viewModel.isBroadcastConnected
             )
         }
     }

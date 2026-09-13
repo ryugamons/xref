@@ -1,5 +1,6 @@
 package id.xterm.xref.data.repository
 
+import android.util.Log
 import id.xterm.xref.core.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -9,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import okhttp3.OkHttpClient
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -35,29 +37,38 @@ class WebSocketRepository @Inject constructor() {
         encodeDefaults = true
     }
     private val client = OkHttpClient()
-    private var webSocketClient: WebSocketClient? = null
     
-    private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
-    val connectionState = _connectionState.asStateFlow()
+    // Multi-session handling map for separate accounts
+    private val webSocketClients = ConcurrentHashMap<String, WebSocketClient>()
+    private val pingJobs = ConcurrentHashMap<String, Job>()
+    
+    // Per-connection type state flows
+    private val _refereeConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
+    val refereeConnectionState = _refereeConnectionState.asStateFlow()
 
-    private val _walletBalance = MutableStateFlow<String>("0.00 CR")
-    val walletBalance = _walletBalance.asStateFlow()
+    private val _broadcastConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
+    val broadcastConnectionState = _broadcastConnectionState.asStateFlow()
+
+    // Per-connection type wallet balance flows
+    private val _refereeWalletBalance = MutableStateFlow<String>("0.00 CR")
+    val refereeWalletBalance = _refereeWalletBalance.asStateFlow()
+
+    private val _broadcastWalletBalance = MutableStateFlow<String>("0.00 CR")
+    val broadcastWalletBalance = _broadcastWalletBalance.asStateFlow()
 
     private val _events = MutableSharedFlow<JsonObject>(extraBufferCapacity = 64)
     val events = _events.asSharedFlow()
 
-    private var currentUsername: String? = null
-    private var currentPassword: String? = null
-    private var pingJob: Job? = null
     private val repositoryScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
-    fun connect(username: String, password: String) {
-        currentUsername = username
-        currentPassword = password
+    fun connect(username: String, password: String, connectionType: String) {
+        val stateFlow = if (connectionType == "REFEREE") _refereeConnectionState else _broadcastConnectionState
+        stateFlow.value = ConnectionState.Connecting
         
-        _connectionState.value = ConnectionState.Connecting
+        // Disconnect existing if any
+        disconnectSession(connectionType)
         
-        webSocketClient = WebSocketClient(
+        val webSocketClient = WebSocketClient(
             url = "wss://developer.mig33.id/developer/ws",
             json = json,
             client = client,
@@ -73,84 +84,87 @@ class WebSocketRepository @Inject constructor() {
                     val type = jsonObject?.get("type")?.jsonPrimitive?.contentOrNull
                     when (type) {
                         "auth.required" -> {
-                            handleAuthRequired()
+                            val loginReq = LoginRequest(username = username, password = password)
+                            webSocketClients[connectionType]?.send(json.encodeToString(loginReq))
                         }
                         "session.ready" -> {
                             val dataObj = jsonObject.get("data")?.jsonObject
                             val walletObj = dataObj?.get("wallet")?.jsonObject
                             val balanceMilliCr = walletObj?.get("balance_milli_cr")?.jsonPrimitive?.longOrNull ?: 0L
-                            _walletBalance.value = "${balanceMilliCr / 1000} CR"
                             
-                            _connectionState.value = ConnectionState.Connected
-                            startPingScheduler()
+                            val balanceText = "${balanceMilliCr / 1000} CR"
+                            if (connectionType == "REFEREE") _refereeWalletBalance.value = balanceText
+                            else _broadcastWalletBalance.value = balanceText
+                            
+                            stateFlow.value = ConnectionState.Connected
+                            startPingScheduler(connectionType)
                         }
                         "wallet.balance.result", "wallet.update", "wallet.transfer.result" -> {
                             val dataObj = jsonObject.get("data")?.jsonObject
                             val walletObj = dataObj?.get("wallet")?.jsonObject ?: dataObj
                             val balanceMilliCr = walletObj?.get("balance_milli_cr")?.jsonPrimitive?.longOrNull ?: 0L
                             if (balanceMilliCr > 0) {
-                                _walletBalance.value = "${balanceMilliCr / 1000} CR"
+                                val balanceText = "${balanceMilliCr / 1000} CR"
+                                if (connectionType == "REFEREE") _refereeWalletBalance.value = balanceText
+                                else _broadcastWalletBalance.value = balanceText
                             }
                         }
                         "error" -> {
-                            stopPingScheduler()
+                            stopPingScheduler(connectionType)
                             val dataObj = jsonObject.get("data")?.jsonObject
                             val errorMsg = dataObj?.get("message")?.jsonPrimitive?.contentOrNull 
                                 ?: jsonObject.get("message")?.jsonPrimitive?.contentOrNull 
                                 ?: "Unknown error"
-                            _connectionState.value = ConnectionState.Error(errorMsg)
+                            stateFlow.value = ConnectionState.Error(errorMsg)
                         }
                     }
                 }
 
                 override fun onError(error: String) {
-                    stopPingScheduler()
-                    _connectionState.value = ConnectionState.Error(error)
+                    stopPingScheduler(connectionType)
+                    stateFlow.value = ConnectionState.Error(error)
                 }
 
                 override fun onClosed(reason: String) {
-                    stopPingScheduler()
-                    _connectionState.value = ConnectionState.Disconnected
+                    stopPingScheduler(connectionType)
+                    stateFlow.value = ConnectionState.Disconnected
                 }
             }
         )
-        webSocketClient?.connect()
+        
+        webSocketClients[connectionType] = webSocketClient
+        webSocketClient.connect()
     }
 
-    private fun startPingScheduler() {
-        stopPingScheduler()
-        pingJob = repositoryScope.launch {
+    private fun startPingScheduler(connectionType: String) {
+        stopPingScheduler(connectionType)
+        val job = repositoryScope.launch {
             while (isActive) {
-                delay(30_000) // 30 seconds
-                ping()
+                delay(30_000)
+                webSocketClients[connectionType]?.send("{\"type\":\"ping\"}")
             }
         }
+        pingJobs[connectionType] = job
     }
 
-    private fun stopPingScheduler() {
-        pingJob?.cancel()
-        pingJob = null
-    }
-
-    private fun handleAuthRequired() {
-        val username = currentUsername ?: return
-        val password = currentPassword ?: return
-        val loginReq = LoginRequest(username = username, password = password)
-        webSocketClient?.send(json.encodeToString(loginReq))
+    private fun stopPingScheduler(connectionType: String) {
+        pingJobs[connectionType]?.cancel()
+        pingJobs.remove(connectionType)
     }
 
     fun joinRoom(room: String) {
         val req = JoinRoomRequest(room = room)
-        webSocketClient?.send(json.encodeToString(req))
+        // Default join room using referee session if available
+        val activeClient = webSocketClients["REFEREE"] ?: webSocketClients["BROADCAST"]
+        activeClient?.send(json.encodeToString(req))
     }
 
-    fun ping() {
-        webSocketClient?.send("{\"type\":\"ping\"}")
-    }
-
-    fun disconnect() {
-        stopPingScheduler()
-        webSocketClient?.disconnect()
-        _connectionState.value = ConnectionState.Disconnected
+    fun disconnectSession(connectionType: String) {
+        stopPingScheduler(connectionType)
+        webSocketClients[connectionType]?.disconnect()
+        webSocketClients.remove(connectionType)
+        
+        val stateFlow = if (connectionType == "REFEREE") _refereeConnectionState else _broadcastConnectionState
+        stateFlow.value = ConnectionState.Disconnected
     }
 }
