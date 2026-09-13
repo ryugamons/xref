@@ -15,8 +15,8 @@ object AuthPreferences {
 
     private val KEY_REFEREE_ID = stringPreferencesKey("referee_id")
     private val KEY_REFEREE_PASSWORD = stringPreferencesKey("referee_password")
-    private val KEY_BROADCAST_ID = stringPreferencesKey("broadcast_id")
-    private val KEY_BROADCAST_PASSWORD = stringPreferencesKey("broadcast_password")
+    private val KEY_STARTER_ID = stringPreferencesKey("starter_id")
+    private val KEY_STARTER_PASSWORD = stringPreferencesKey("starter_password")
     private val KEY_BROADCAST_ROOM = stringPreferencesKey("broadcast_room")
     private val KEY_BATTLE_ROOMS = stringPreferencesKey("battle_rooms")
 
@@ -27,10 +27,10 @@ object AuthPreferences {
         }
     }
 
-    suspend fun saveBroadcastAuth(id: String, password: String) {
+    suspend fun saveStarterAuth(id: String, password: String) {
         dataStore.edit { prefs ->
-            prefs[KEY_BROADCAST_ID] = id
-            prefs[KEY_BROADCAST_PASSWORD] = password
+            prefs[KEY_STARTER_ID] = id
+            prefs[KEY_STARTER_PASSWORD] = password
         }
     }
 
@@ -43,8 +43,8 @@ object AuthPreferences {
 
     suspend fun getRefereeId(): String = dataStore.data.map { it[KEY_REFEREE_ID] ?: "" }.first()
     suspend fun getRefereePassword(): String = dataStore.data.map { it[KEY_REFEREE_PASSWORD] ?: "" }.first()
-    suspend fun getBroadcastId(): String = dataStore.data.map { it[KEY_BROADCAST_ID] ?: "" }.first()
-    suspend fun getBroadcastPassword(): String = dataStore.data.map { it[KEY_BROADCAST_PASSWORD] ?: "" }.first()
+    suspend fun getStarterId(): String = dataStore.data.map { it[KEY_STARTER_ID] ?: "" }.first()
+    suspend fun getStarterPassword(): String = dataStore.data.map { it[KEY_STARTER_PASSWORD] ?: "" }.first()
     suspend fun getBroadcastRoom(): String = dataStore.data.map { it[KEY_BROADCAST_ROOM] ?: "" }.first()
     suspend fun getBattleRooms(): List<String> = dataStore.data.map { 
         val rooms = it[KEY_BATTLE_ROOMS] ?: ""

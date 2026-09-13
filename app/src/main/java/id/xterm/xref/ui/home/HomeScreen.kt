@@ -35,6 +35,7 @@ import id.xterm.xref.ui.components.StatusCard
 import id.xterm.xref.ui.theme.DarkBackground
 import id.xterm.xref.ui.theme.DarkGreen700
 import id.xterm.xref.ui.theme.DarkGreen800
+import id.xterm.xref.ui.theme.DarkGreen900
 import id.xterm.xref.ui.theme.NeonGreen
 import id.xterm.xref.ui.theme.TextDim
 
@@ -57,7 +58,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                 .padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Left Side: 2x2 Icon Grid (Fixed width in Landscape)
+            // Left Side: 2x2 Icon Grid
             Column(
                 modifier = Modifier
                     .width(180.dp)
@@ -255,13 +256,13 @@ private fun RefereeSection(viewModel: HomeViewModel) {
             ) {
                 XrefTextField(
                     value = viewModel.refereeId,
-                    onValueChange = { newId -> viewModel.refereeId = newId },
+                    onValueChange = { viewModel.refereeId = it },
                     label = "Referee ID"
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 XrefTextField(
-                    value = viewModel.password,
-                    onValueChange = { newPassword -> viewModel.password = newPassword },
+                    value = viewModel.refereePassword,
+                    onValueChange = { viewModel.refereePassword = it },
                     label = "Password",
                     visualTransformation = PasswordVisualTransformation()
                 )
@@ -277,42 +278,42 @@ private fun RefereeSection(viewModel: HomeViewModel) {
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !viewModel.isRefereeConnecting,
-                    containerColor = if (viewModel.isRefereeConnected) androidx.compose.ui.graphics.Color(0xFFFF5252) else id.xterm.xref.ui.theme.NeonGreen,
-                    contentColor = if (viewModel.isRefereeConnected) androidx.compose.ui.graphics.Color.Black else id.xterm.xref.ui.theme.DarkGreen900
+                    containerColor = if (viewModel.isRefereeConnected) Color(0xFFFF5252) else NeonGreen,
+                    contentColor = if (viewModel.isRefereeConnected) Color.Black else DarkGreen900
                 )
             }
 
-            // Card 2: BROADCAST
+            // Card 2: STARTER
             XrefCard(
-                title = "BROADCAST",
+                title = "STARTER",
                 modifier = Modifier.weight(1f)
             ) {
                 XrefTextField(
-                    value = viewModel.broadcastId,
-                    onValueChange = { newBroadcastId -> viewModel.broadcastId = newBroadcastId },
-                    label = "Broadcast ID"
+                    value = viewModel.starterId,
+                    onValueChange = { viewModel.starterId = it },
+                    label = "Starter ID"
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 XrefTextField(
-                    value = viewModel.broadcastPassword,
-                    onValueChange = { newBroadcastPassword -> viewModel.broadcastPassword = newBroadcastPassword },
+                    value = viewModel.starterPassword,
+                    onValueChange = { viewModel.starterPassword = it },
                     label = "Password",
                     visualTransformation = PasswordVisualTransformation()
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 XrefButton(
-                    text = if (viewModel.isBroadcastConnected) "LOGOUT" else "LOGIN",
+                    text = if (viewModel.isStarterConnected) "LOGOUT" else "LOGIN",
                     onClick = {
-                        if (viewModel.isBroadcastConnected) {
-                            viewModel.disconnectBroadcast()
+                        if (viewModel.isStarterConnected) {
+                            viewModel.disconnectStarter()
                         } else {
-                            viewModel.connectBroadcast()
+                            viewModel.connectStarter()
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !viewModel.isBroadcastConnecting,
-                    containerColor = if (viewModel.isBroadcastConnected) androidx.compose.ui.graphics.Color(0xFFFF5252) else id.xterm.xref.ui.theme.NeonGreen,
-                    contentColor = if (viewModel.isBroadcastConnected) androidx.compose.ui.graphics.Color.Black else id.xterm.xref.ui.theme.DarkGreen900
+                    enabled = !viewModel.isStarterConnecting,
+                    containerColor = if (viewModel.isStarterConnected) Color(0xFFFF5252) else NeonGreen,
+                    contentColor = if (viewModel.isStarterConnected) Color.Black else DarkGreen900
                 )
             }
         }
@@ -325,19 +326,19 @@ private fun RefereeSection(viewModel: HomeViewModel) {
             isConnected = viewModel.isRefereeConnected
         )
         
-        // Broadcast Status Card
+        // Starter Status Card
         StatusCard(
-            id = viewModel.broadcastId,
-            status = viewModel.broadcastStatusText,
-            credits = viewModel.broadcastCredits,
-            isConnected = viewModel.isBroadcastConnected
+            id = viewModel.starterId,
+            status = viewModel.starterStatusText,
+            credits = viewModel.starterCredits,
+            isConnected = viewModel.isStarterConnected
         )
     }
 }
 
 @Composable
 private fun RoomSection(viewModel: HomeViewModel) {
-    XrefCard(title = "ROOM_CONFIG") {
+    XrefCard(title = "ROOM SETUP") {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -345,7 +346,7 @@ private fun RoomSection(viewModel: HomeViewModel) {
             // Broadcast Room Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
                 XrefTextField(
@@ -357,17 +358,31 @@ private fun RoomSection(viewModel: HomeViewModel) {
                 XrefButton(
                     text = "JOIN",
                     onClick = { viewModel.joinBroadcastRoom() },
-                    modifier = Modifier.width(70.dp),
+                    modifier = Modifier.width(54.dp),
                     height = 42.dp,
-                    enabled = viewModel.isBroadcastConnected
+                    enabled = viewModel.isRefereeConnected,
+                    contentPadding = PaddingValues(horizontal = 0.dp)
                 )
+                XrefButton(
+                    text = "LEAVE",
+                    onClick = { viewModel.leaveBroadcastRoom() },
+                    modifier = Modifier.width(54.dp),
+                    height = 42.dp,
+                    enabled = viewModel.isRefereeConnected,
+                    containerColor = Color(0xFF8B2525),
+                    contentColor = Color.White,
+                    contentPadding = PaddingValues(horizontal = 0.dp)
+                )
+                
+                // Alignment placeholder to match Battle Room's remove button slot
+                Box(modifier = Modifier.size(38.dp))
             }
 
             // Dynamic Battle Rooms List
             viewModel.battleRooms.forEachIndexed { index, room ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.Bottom
                 ) {
                     XrefTextField(
@@ -380,26 +395,40 @@ private fun RoomSection(viewModel: HomeViewModel) {
                     XrefButton(
                         text = "JOIN",
                         onClick = { viewModel.joinBattleRoom(index) },
-                        modifier = Modifier.width(70.dp),
+                        modifier = Modifier.width(54.dp),
                         height = 42.dp,
-                        enabled = viewModel.isRefereeConnected
+                        enabled = viewModel.isRefereeConnected,
+                        contentPadding = PaddingValues(horizontal = 0.dp)
+                    )
+
+                    XrefButton(
+                        text = "LEAVE",
+                        onClick = { viewModel.leaveBattleRoom(index) },
+                        modifier = Modifier.width(54.dp),
+                        height = 42.dp,
+                        enabled = viewModel.isRefereeConnected,
+                        containerColor = Color(0xFF8B2525),
+                        contentColor = Color.White,
+                        contentPadding = PaddingValues(horizontal = 0.dp)
                     )
                     
-                    if (viewModel.battleRooms.size > 1) {
-                        IconButton(
-                            onClick = { viewModel.removeBattleRoom(index) },
-                            modifier = Modifier
-                                .padding(bottom = 2.dp)
-                                .size(38.dp)
-                                .background(Color(0x22FF5252), RoundedCornerShape(8.dp))
-                                .border(1.dp, Color(0x44FF5252), RoundedCornerShape(8.dp))
-                        ) {
-                            Text(
-                                text = "×",
-                                color = Color(0xFFFF5252),
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Light
-                            )
+                    Box(modifier = Modifier.size(38.dp), contentAlignment = Alignment.BottomCenter) {
+                        if (viewModel.battleRooms.size > 1) {
+                            IconButton(
+                                onClick = { viewModel.removeBattleRoom(index) },
+                                modifier = Modifier
+                                    .padding(bottom = 2.dp)
+                                    .size(38.dp)
+                                    .background(Color(0x22FF5252), RoundedCornerShape(8.dp))
+                                    .border(1.dp, Color(0x44FF5252), RoundedCornerShape(8.dp))
+                            ) {
+                                Text(
+                                    text = "×",
+                                    color = Color(0xFFFF5252),
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Light
+                                )
+                            }
                         }
                     }
                 }
@@ -420,7 +449,15 @@ private fun RoomSection(viewModel: HomeViewModel) {
                     text = "JOIN ALL",
                     onClick = { viewModel.joinRooms() },
                     modifier = Modifier.weight(1f),
-                    enabled = viewModel.isRefereeConnected || viewModel.isBroadcastConnected
+                    enabled = viewModel.isRefereeConnected
+                )
+                XrefButton(
+                    text = "LEAVE ALL",
+                    onClick = { viewModel.leaveRooms() },
+                    modifier = Modifier.weight(1f),
+                    enabled = viewModel.isRefereeConnected,
+                    containerColor = Color(0xFF8B2525),
+                    contentColor = Color.White
                 )
             }
         }

@@ -15,32 +15,32 @@ class HomeViewModel : ViewModel() {
     private val webSocketRepository = WebSocketRepository.getInstance()
 
     var refereeId by mutableStateOf("")
-    var password by mutableStateOf("")
-    var broadcastId by mutableStateOf("")
-    var broadcastPassword by mutableStateOf("")
+    var refereePassword by mutableStateOf("")
+    var starterId by mutableStateOf("")
+    var starterPassword by mutableStateOf("")
     
     // Room states
     var broadcastRoom by mutableStateOf("")
     val battleRooms = mutableStateListOf<String>()
 
     var refereeCredits by mutableStateOf("0.00 CR")
-    var broadcastCredits by mutableStateOf("0.00 CR")
+    var starterCredits by mutableStateOf("0.00 CR")
 
     var isRefereeConnected by mutableStateOf(false)
-    var isBroadcastConnected by mutableStateOf(false)
+    var isStarterConnected by mutableStateOf(false)
     var isRefereeConnecting by mutableStateOf(false)
-    var isBroadcastConnecting by mutableStateOf(false)
+    var isStarterConnecting by mutableStateOf(false)
     
     var refereeStatusText by mutableStateOf("offline")
-    var broadcastStatusText by mutableStateOf("offline")
+    var starterStatusText by mutableStateOf("offline")
 
     init {
         // Load saved credentials and rooms
         viewModelScope.launch {
             refereeId = AuthPreferences.getRefereeId()
-            password = AuthPreferences.getRefereePassword()
-            broadcastId = AuthPreferences.getBroadcastId()
-            broadcastPassword = AuthPreferences.getBroadcastPassword()
+            refereePassword = AuthPreferences.getRefereePassword()
+            starterId = AuthPreferences.getStarterId()
+            starterPassword = AuthPreferences.getStarterPassword()
             
             broadcastRoom = AuthPreferences.getBroadcastRoom()
             val savedBattleRooms = AuthPreferences.getBattleRooms()
@@ -51,7 +51,7 @@ class HomeViewModel : ViewModel() {
             }
         }
 
-        // Listen to Referee connection states
+        // Listen to Referee (Broadcaster Role) connection states
         viewModelScope.launch {
             webSocketRepository.refereeConnectionState.collect { state ->
                 isRefereeConnected = state is ConnectionState.Connected
@@ -66,17 +66,17 @@ class HomeViewModel : ViewModel() {
             }
         }
 
-        // Listen to Broadcast connection states
+        // Listen to Starter connection states
         viewModelScope.launch {
-            webSocketRepository.broadcastConnectionState.collect { state ->
-                isBroadcastConnected = state is ConnectionState.Connected
-                isBroadcastConnecting = state is ConnectionState.Connecting
+            webSocketRepository.starterConnectionState.collect { state ->
+                isStarterConnected = state is ConnectionState.Connected
+                isStarterConnecting = state is ConnectionState.Connecting
                 
                 when (state) {
-                    is ConnectionState.Connected -> broadcastStatusText = "idle"
-                    is ConnectionState.Connecting -> broadcastStatusText = "connecting"
-                    is ConnectionState.Disconnected, ConnectionState.Idle -> broadcastStatusText = "offline"
-                    is ConnectionState.Error -> broadcastStatusText = "login failed"
+                    is ConnectionState.Connected -> starterStatusText = "idle"
+                    is ConnectionState.Connecting -> starterStatusText = "connecting"
+                    is ConnectionState.Disconnected, ConnectionState.Idle -> starterStatusText = "offline"
+                    is ConnectionState.Error -> starterStatusText = "login failed"
                 }
             }
         }
@@ -88,10 +88,10 @@ class HomeViewModel : ViewModel() {
             }
         }
 
-        // Listen to Broadcast wallet updates
+        // Listen to Starter wallet updates
         viewModelScope.launch {
-            webSocketRepository.broadcastWalletBalance.collect { balance ->
-                broadcastCredits = balance
+            webSocketRepository.starterWalletBalance.collect { balance ->
+                starterCredits = balance
             }
         }
     }
@@ -108,24 +108,24 @@ class HomeViewModel : ViewModel() {
 
     fun connectReferee() {
         viewModelScope.launch {
-            AuthPreferences.saveRefereeAuth(refereeId, password)
+            AuthPreferences.saveRefereeAuth(refereeId, refereePassword)
         }
-        webSocketRepository.connect(refereeId, password, "REFEREE")
+        webSocketRepository.connect(refereeId, refereePassword, "REFEREE")
     }
 
     fun disconnectReferee() {
         webSocketRepository.disconnectSession("REFEREE")
     }
 
-    fun connectBroadcast() {
+    fun connectStarter() {
         viewModelScope.launch {
-            AuthPreferences.saveBroadcastAuth(broadcastId, broadcastPassword)
+            AuthPreferences.saveStarterAuth(starterId, starterPassword)
         }
-        webSocketRepository.connect(broadcastId, broadcastPassword, "BROADCAST")
+        webSocketRepository.connect(starterId, starterPassword, "STARTER")
     }
 
-    fun disconnectBroadcast() {
-        webSocketRepository.disconnectSession("BROADCAST")
+    fun disconnectStarter() {
+        webSocketRepository.disconnectSession("STARTER")
     }
 
     // Room management
@@ -161,24 +161,50 @@ class HomeViewModel : ViewModel() {
 
     fun joinBroadcastRoom() {
         if (broadcastRoom.isNotEmpty()) {
-            webSocketRepository.joinRoom(broadcastRoom, "BROADCAST")
+            // Referee ID acts as Broadcaster (enters rooms)
+            webSocketRepository.joinRoom(broadcastRoom, "REFEREE")
+        }
+    }
+
+    fun leaveBroadcastRoom() {
+        if (broadcastRoom.isNotEmpty()) {
+            webSocketRepository.leaveRoom(broadcastRoom, "REFEREE")
         }
     }
 
     fun joinBattleRoom(index: Int) {
         val room = battleRooms.getOrNull(index)
         if (!room.isNullOrEmpty()) {
+            // Referee ID acts as Broadcaster (enters rooms)
             webSocketRepository.joinRoom(room, "REFEREE")
+        }
+    }
+
+    fun leaveBattleRoom(index: Int) {
+        val room = battleRooms.getOrNull(index)
+        if (!room.isNullOrEmpty()) {
+            webSocketRepository.leaveRoom(room, "REFEREE")
         }
     }
 
     fun joinRooms() {
         if (broadcastRoom.isNotEmpty()) {
-            webSocketRepository.joinRoom(broadcastRoom, "BROADCAST")
+            webSocketRepository.joinRoom(broadcastRoom, "REFEREE")
         }
         battleRooms.forEach { room ->
             if (room.isNotEmpty()) {
                 webSocketRepository.joinRoom(room, "REFEREE")
+            }
+        }
+    }
+
+    fun leaveRooms() {
+        if (broadcastRoom.isNotEmpty()) {
+            webSocketRepository.leaveRoom(broadcastRoom, "REFEREE")
+        }
+        battleRooms.forEach { room ->
+            if (room.isNotEmpty()) {
+                webSocketRepository.leaveRoom(room, "REFEREE")
             }
         }
     }

@@ -85,7 +85,7 @@ fun MainScreen(
                     text = "App Name: XREF\n" +
                             "Version: 1.0.0\n" +
                             "Creator: hex\n\n" +
-                            "Description: A professional referee tool for mig33 kick tournaments. Features include real-time match monitoring, tournament brackets, and automated 10vs10 match logic with 3s timeout enforcement.",
+                            "Description: A professional broadcasting and starter tool for mig33 kick tournaments. Features include real-time match monitoring, tournament brackets, and automated 10vs10 match logic with 3s timeout enforcement.",
                     color = NeonGreen
                 )
             },

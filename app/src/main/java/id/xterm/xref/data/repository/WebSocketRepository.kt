@@ -46,15 +46,15 @@ class WebSocketRepository @Inject constructor() {
     private val _refereeConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
     val refereeConnectionState = _refereeConnectionState.asStateFlow()
 
-    private val _broadcastConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
-    val broadcastConnectionState = _broadcastConnectionState.asStateFlow()
+    private val _starterConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
+    val starterConnectionState = _starterConnectionState.asStateFlow()
 
     // Per-connection type wallet balance flows
     private val _refereeWalletBalance = MutableStateFlow<String>("0.00 CR")
     val refereeWalletBalance = _refereeWalletBalance.asStateFlow()
 
-    private val _broadcastWalletBalance = MutableStateFlow<String>("0.00 CR")
-    val broadcastWalletBalance = _broadcastWalletBalance.asStateFlow()
+    private val _starterWalletBalance = MutableStateFlow<String>("0.00 CR")
+    val starterWalletBalance = _starterWalletBalance.asStateFlow()
 
     private val _events = MutableSharedFlow<JsonObject>(extraBufferCapacity = 64)
     val events = _events.asSharedFlow()
@@ -62,7 +62,7 @@ class WebSocketRepository @Inject constructor() {
     private val repositoryScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     fun connect(username: String, password: String, connectionType: String) {
-        val stateFlow = if (connectionType == "REFEREE") _refereeConnectionState else _broadcastConnectionState
+        val stateFlow = if (connectionType == "REFEREE") _refereeConnectionState else _starterConnectionState
         stateFlow.value = ConnectionState.Connecting
         
         // Disconnect existing if any
@@ -94,7 +94,7 @@ class WebSocketRepository @Inject constructor() {
                             
                             val balanceText = "${balanceMilliCr / 1000} CR"
                             if (connectionType == "REFEREE") _refereeWalletBalance.value = balanceText
-                            else _broadcastWalletBalance.value = balanceText
+                            else _starterWalletBalance.value = balanceText
                             
                             stateFlow.value = ConnectionState.Connected
                             startPingScheduler(connectionType)
@@ -106,7 +106,7 @@ class WebSocketRepository @Inject constructor() {
                             if (balanceMilliCr > 0) {
                                 val balanceText = "${balanceMilliCr / 1000} CR"
                                 if (connectionType == "REFEREE") _refereeWalletBalance.value = balanceText
-                                else _broadcastWalletBalance.value = balanceText
+                                else _starterWalletBalance.value = balanceText
                             }
                         }
                         "error" -> {
@@ -157,12 +157,17 @@ class WebSocketRepository @Inject constructor() {
         webSocketClients[connectionType]?.send(json.encodeToString(req))
     }
 
+    fun leaveRoom(room: String, connectionType: String) {
+        val req = LeaveRoomRequest(room = room)
+        webSocketClients[connectionType]?.send(json.encodeToString(req))
+    }
+
     fun disconnectSession(connectionType: String) {
         stopPingScheduler(connectionType)
         webSocketClients[connectionType]?.disconnect()
         webSocketClients.remove(connectionType)
         
-        val stateFlow = if (connectionType == "REFEREE") _refereeConnectionState else _broadcastConnectionState
+        val stateFlow = if (connectionType == "REFEREE") _refereeConnectionState else _starterConnectionState
         stateFlow.value = ConnectionState.Disconnected
     }
 }

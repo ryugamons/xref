@@ -22,6 +22,12 @@ data class JoinRoomRequest(
 )
 
 @Serializable
+data class LeaveRoomRequest(
+    val type: String = "room.leave",
+    val room: String
+)
+
+@Serializable
 data class SessionReadyData(
     val developer: DeveloperData? = null,
     val wallet: WalletData? = null
