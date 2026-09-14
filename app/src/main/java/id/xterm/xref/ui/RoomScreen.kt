@@ -254,7 +254,6 @@ private fun RoomChatDetail(
     val teamB by (session?.teamB ?: MutableStateFlow(MatchSide("Team B", emptyList()))).collectAsState()
     
     var isArenaExpanded by remember { mutableStateOf(false) }
-    var isTemplatesExpanded by remember { mutableStateOf(false) }
 
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -324,77 +323,9 @@ private fun RoomChatDetail(
             )
         }
 
-        // Referee Templates
-        XrefCard(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-            title = "REFEREE TOOLS"
-        ) {
-            Column {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { isTemplatesExpanded = !isTemplatesExpanded }
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (isTemplatesExpanded) "HIDE TEMPLATES" else "SHOW REFEREE TEMPLATES",
-                        color = NeonGreen,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                
-                if (isTemplatesExpanded) {
-                    val scrollState = rememberScrollState()
-                    Column(
-                        modifier = Modifier
-                            .heightIn(max = 200.dp)
-                            .verticalScroll(scrollState)
-                    ) {
-                        val templates = listOf(
-                            "Match Call" to arenaViewModel.matchCallTemplate,
-                            "Bring IDs" to arenaViewModel.bringMultiIdsTemplate,
-                            "Ready Check" to arenaViewModel.readyCheckTemplate,
-                            "Kickoff" to arenaViewModel.kickoffWarningTemplate
-                        )
-                        templates.forEach { (label, value) ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = label.uppercase(),
-                                    color = TextDim,
-                                    fontSize = 9.sp,
-                                    modifier = Modifier.width(70.dp),
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                XrefButton(
-                                    text = "SEND",
-                                    onClick = { arenaViewModel.sendTemplate(value) },
-                                    modifier = Modifier.weight(1f),
-                                    height = 32.dp,
-                                    contentPadding = PaddingValues(0.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
         // Message Input Area
         var inputText by remember { mutableStateOf("") }
+        var dropdownExpanded by remember { mutableStateOf(false) }
         
         fun sendMessage() {
             if (inputText.isNotBlank()) {
@@ -406,8 +337,49 @@ private fun RoomChatDetail(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            Box(modifier = Modifier.wrapContentSize(Alignment.TopStart).padding(bottom = 2.dp)) {
+                XrefButton(
+                    text = "▼",
+                    onClick = { dropdownExpanded = true },
+                    modifier = Modifier.width(38.dp),
+                    height = 42.dp,
+                    contentPadding = PaddingValues(horizontal = 0.dp),
+                    containerColor = DarkGreen800,
+                    contentColor = NeonGreen
+                )
+                DropdownMenu(
+                    expanded = dropdownExpanded,
+                    onDismissRequest = { dropdownExpanded = false },
+                    modifier = Modifier.background(DarkGreen800).border(1.dp, NeonGreen, RoundedCornerShape(4.dp))
+                ) {
+                    val templates = listOf(
+                        "Match Call" to arenaViewModel.matchCallTemplate,
+                        "Bring IDs" to homeViewModel.multiLoginTemplate,
+                        "Ready Check" to arenaViewModel.readyCheckTemplate,
+                        "Kickoff" to arenaViewModel.kickoffWarningTemplate
+                    )
+                    templates.forEach { (label, value) ->
+                        DropdownMenuItem(
+                            text = { 
+                                Text(
+                                    text = label.uppercase(), 
+                                    color = NeonGreen, 
+                                    fontSize = 11.sp, 
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
+                                ) 
+                            },
+                            onClick = {
+                                dropdownExpanded = false
+                                arenaViewModel.sendTemplate(value.replace("{room}", roomName.uppercase()))
+                            }
+                        )
+                    }
+                }
+            }
+
             XrefTextField(
                 value = inputText,
                 onValueChange = { inputText = it },
@@ -419,7 +391,7 @@ private fun RoomChatDetail(
             XrefButton(
                 text = "SEND",
                 onClick = { sendMessage() },
-                modifier = Modifier.width(64.dp),
+                modifier = Modifier.width(54.dp),
                 height = 42.dp,
                 contentPadding = PaddingValues(horizontal = 0.dp)
             )

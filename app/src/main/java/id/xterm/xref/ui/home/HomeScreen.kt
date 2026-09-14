@@ -49,6 +49,7 @@ private enum class HomeSection {
 @Composable
 fun DashboardScreen(
     viewModel: HomeViewModel = viewModel(),
+    arenaViewModel: id.xterm.xref.ui.arena.ArenaViewModel = viewModel(),
     onNavigateToRooms: () -> Unit = {},
     onLoadToDashboard: (teamA: List<String>, teamB: List<String>) -> Unit = { _, _ -> }
 ) {
@@ -114,6 +115,7 @@ fun DashboardScreen(
                 ContentArea(
                     activeSection = activeSection,
                     viewModel = viewModel,
+                    arenaViewModel = arenaViewModel,
                     onNavigateToRooms = onNavigateToRooms,
                     onLoadToDashboard = onLoadToDashboard
                 )
@@ -171,6 +173,7 @@ fun DashboardScreen(
                 ContentArea(
                     activeSection = activeSection,
                     viewModel = viewModel,
+                    arenaViewModel = arenaViewModel,
                     onNavigateToRooms = onNavigateToRooms,
                     onLoadToDashboard = onLoadToDashboard
                 )
@@ -183,6 +186,7 @@ fun DashboardScreen(
 private fun ContentArea(
     activeSection: HomeSection,
     viewModel: HomeViewModel,
+    arenaViewModel: id.xterm.xref.ui.arena.ArenaViewModel,
     onNavigateToRooms: () -> Unit,
     onLoadToDashboard: (List<String>, List<String>) -> Unit
 ) {
@@ -215,7 +219,7 @@ private fun ContentArea(
         enter = fadeIn() + expandVertically(),
         exit = fadeOut() + shrinkVertically()
     ) {
-        SettingsSection(viewModel)
+        SettingsSection(viewModel, arenaViewModel)
     }
 }
 
@@ -819,11 +823,33 @@ private fun MatchSection(
 
 @Composable
 private fun SettingsSection(viewModel: HomeViewModel) {
+    var localIntervalText by remember(viewModel.broadcastIntervalSeconds) {
+        mutableStateOf(viewModel.broadcastIntervalSeconds.toString())
+    }
+    var localTitleText by remember(viewModel.turneyTitle) {
+        mutableStateOf(viewModel.turneyTitle)
+    }
+    var localTemplateText by remember(viewModel.multiLoginTemplate) {
+        mutableStateOf(viewModel.multiLoginTemplate)
+    }
+
     XrefCard(title = "SYSTEM SETTINGS") {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            XrefTextField(
+                value = localTitleText,
+                onValueChange = { localTitleText = it },
+                label = "TURNEY TITLE (BROADCAST HEADER)"
+            )
+
+            XrefTextField(
+                value = localTemplateText,
+                onValueChange = { localTemplateText = it },
+                label = "MULTI LOGIN TEMPLATE COMMAND"
+            )
+
             XrefTextField(
                 value = viewModel.walletPin,
                 onValueChange = { viewModel.updateWalletPin(it) },
@@ -832,12 +858,25 @@ private fun SettingsSection(viewModel: HomeViewModel) {
             )
             
             XrefTextField(
-                value = viewModel.broadcastIntervalSeconds.toString(),
-                onValueChange = { 
-                    val newValue = it.toIntOrNull() ?: 60
-                    viewModel.updateBroadcastInterval(newValue)
+                value = localIntervalText,
+                onValueChange = { newValue ->
+                    if (newValue.isEmpty() || newValue.all { it.isDigit() }) {
+                        localIntervalText = newValue
+                    }
                 },
                 label = "BROADCAST INTERVAL (SECONDS)"
+            )
+            
+            XrefButton(
+                text = "SAVE SETTINGS",
+                onClick = {
+                    val newValue = localIntervalText.toIntOrNull() ?: 60
+                    viewModel.updateBroadcastInterval(newValue)
+                    viewModel.updateTurneyTitle(localTitleText.ifBlank { "XREF" })
+                    viewModel.updateMultiLoginTemplate(localTemplateText.ifBlank { "BRING YOUR 10 MULTI-IDS INTO ROOM {room} NOW!" })
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = localIntervalText.isNotEmpty()
             )
             
             Spacer(modifier = Modifier.height(8.dp))

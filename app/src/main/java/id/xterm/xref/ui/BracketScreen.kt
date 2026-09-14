@@ -204,7 +204,7 @@ fun BracketScreen(
                                     )
                                     
                                     Text(
-                                        text = "[ SUMMON TO ROOM ]",
+                                        text = "[ CALL ]",
                                         color = NeonGreen,
                                         fontSize = 10.sp,
                                         fontFamily = FontFamily.Monospace,

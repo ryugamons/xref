@@ -46,6 +46,8 @@ class HomeViewModel : ViewModel() {
     // System Settings
     var walletPin by mutableStateOf("123456")
     var broadcastIntervalSeconds by mutableStateOf(60)
+    var turneyTitle by mutableStateOf("XREF")
+    var multiLoginTemplate by mutableStateOf("BRING YOUR 10 MULTI-IDS INTO ROOM {room} NOW!")
 
     // Match Active State
     var matchPhase by mutableStateOf(MatchPhase.IDLE)
@@ -106,6 +108,8 @@ class HomeViewModel : ViewModel() {
             
             walletPin = AuthPreferences.getWalletPin()
             broadcastIntervalSeconds = AuthPreferences.getBroadcastInterval()
+            turneyTitle = AuthPreferences.getTurneyTitle()
+            multiLoginTemplate = AuthPreferences.getMultiLoginTemplate()
         }
 
         // Listen to Referee connection states
@@ -404,11 +408,9 @@ class HomeViewModel : ViewModel() {
             val feeText = if (isRegistrationFeeEnabled) "$registrationFeeNominal CR" else "FREE"
             val instruction = if (isRegistrationFeeEnabled) "TRF ID $refereeId" else "Type JOIN to enter!"
             
-            val message = "/me [XREF] OPEN MATCH $bracketSize USER - FEE $feeText - $instruction [$joinedText]"
+            val message = "/me [$turneyTitle] OPEN MATCH $bracketSize USER - FEE $feeText - $instruction [$joinedText]"
 
-            activeRooms.value.forEach { room ->
-                webSocketRepository.sendMessage(room, message, "REFEREE")
-            }
+            webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
         }
     }
 
@@ -419,10 +421,8 @@ class HomeViewModel : ViewModel() {
         if (isRefereeConnected && broadcastRoom.isNotEmpty() && isJoinedInBroadcastRoom) {
             val pendingRolls = registeredParticipants.filter { !participantRolls.containsKey(it) }
             if (pendingRolls.isNotEmpty()) {
-                val message = "/me [XREF] REGISTRATION FULL. ALL PARTICIPANTS PLEASE SEND /roll NOW! PENDING: [${pendingRolls.joinToString(", ")}]"
-                activeRooms.value.forEach { room ->
-                    webSocketRepository.sendMessage(room, message, "REFEREE")
-                }
+                val message = "/me [$turneyTitle] REGISTRATION FULL. ALL PARTICIPANTS PLEASE SEND /roll NOW! PENDING: [${pendingRolls.joinToString(", ")}]"
+                webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
             }
         }
     }
@@ -497,7 +497,7 @@ class HomeViewModel : ViewModel() {
                 }
             }
             val seedingText = pairs.joinToString(" | ")
-            val message = "/me [XREF] ROLLING COMPLETED. BRACKET GENERATED: $seedingText"
+                val message = "/me [$turneyTitle] ROLLING COMPLETED. BRACKET GENERATED: $seedingText"
             webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
         }
     }
@@ -519,8 +519,68 @@ class HomeViewModel : ViewModel() {
             
             // Send summon message if in broadcast room
             if (broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
-                val message = "/me [XREF] SUMMON MATCH: ${teamA.uppercase()} vs ${teamB.uppercase()}. ALL PLAYERS ENTER ROOM ${roomToUse.uppercase()} NOW!"
+                val message = "/me [$turneyTitle] SUMMON MATCH: ${teamA.uppercase()} vs ${teamB.uppercase()}. ALL PLAYERS ENTER ROOM ${roomToUse.uppercase()} NOW!"
                 webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
+                
+                // Start a 3-minute countdown broadcast job into that room
+                viewModelScope.launch {
+                    var remainingSeconds = 180
+                    val normalizedRoomToUse = roomToUse.lowercase()
+                    
+                    // Track entered participants of teamA and teamB
+                    val teamAUser = teamA.firstOrNull()?.lowercase() ?: ""
+                    val teamBUser = teamB.firstOrNull()?.lowercase() ?: ""
+                    
+                    var isTeamAEntered = false
+                    var isTeamBEntered = false
+
+                    // Create a collector to listen to room presence events via webSocketRepository.events
+                    val presenceCollectorJob = launch {
+                        webSocketRepository.events.collect { json ->
+                            val type = json["type"]?.jsonPrimitive?.content ?: ""
+                            if (type == "room.participant.added") {
+                                val currentRoom = json["room"]?.jsonPrimitive?.content?.lowercase() ?: ""
+                                val enteringUser = json["username"]?.jsonPrimitive?.content?.lowercase() ?: ""
+                                
+                                if (currentRoom == normalizedRoomToUse) {
+                                    if (enteringUser == teamAUser) isTeamAEntered = true
+                                    if (enteringUser == teamBUser) isTeamBEntered = true
+                                }
+                            }
+                        }
+                    }
+
+                    try {
+                        while (remainingSeconds > 0) {
+                            if (isTeamAEntered && isTeamBEntered) {
+                                val successMessage = "/me [$turneyTitle] BOTH TEAMS ($teamAUser & $teamBUser) HAVE ENTERED ROOM ${roomToUse.uppercase()}! COUNTDOWN CANCELLED."
+                                webSocketRepository.sendMessage(normalizedBroadcastRoom, successMessage, "REFEREE")
+                                
+                                // Send multi login command template after substitution
+                                val formattedMultiMsg = multiLoginTemplate.replace("{room}", roomToUse.uppercase())
+                                val multiBroadcastMessage = "/me [$turneyTitle] $formattedMultiMsg"
+                                webSocketRepository.sendMessage(normalizedBroadcastRoom, multiBroadcastMessage, "REFEREE")
+                                break
+                            }
+
+                            val min = remainingSeconds / 60
+                            val sec = remainingSeconds % 60
+                            val timeStr = if (sec == 0) "$min MINUTES" else "$min MIN $sec SEC"
+                            val countdownMessage = "/me [$turneyTitle] MATCH TIME LIMIT COUNTDOWN: $timeStr REMAINING TO ENTER ROOM ${roomToUse.uppercase()}!"
+                            webSocketRepository.sendMessage(normalizedBroadcastRoom, countdownMessage, "REFEREE")
+                            
+                            delay(30000L) // interval 30s
+                            remainingSeconds -= 30
+                        }
+                        
+                        if (!(isTeamAEntered && isTeamBEntered)) {
+                            val timeUpMessage = "/me [$turneyTitle] TIME IS UP! PREPARING FOR AUTOMATED FORFEIT/START CHECKS IN ROOM ${roomToUse.uppercase()}."
+                            webSocketRepository.sendMessage(normalizedBroadcastRoom, timeUpMessage, "REFEREE")
+                        }
+                    } finally {
+                        presenceCollectorJob.cancel()
+                    }
+                }
             }
         }
         
@@ -561,14 +621,12 @@ class HomeViewModel : ViewModel() {
             val refundText = if (refundCr > 0) " ${refundCr}CR REFUNDED." else ""
             
             val message = if (isRegistrationFeeEnabled) {
-                "/me [XREF] ${username.uppercase()} TRANSFER ${amountCr}CR ✅.$refundText REGISTRATION $count/$total."
+                "/me [$turneyTitle] ${username.uppercase()} TRANSFER ${amountCr}CR ✅.$refundText REGISTRATION $count/$total."
             } else {
-                "/me [XREF] ${username.uppercase()} JOINED ✅. REGISTRATION $count/$total."
+                "/me [$turneyTitle] ${username.uppercase()} JOINED ✅. REGISTRATION $count/$total."
             }
 
-            activeRooms.value.forEach { room ->
-                webSocketRepository.sendMessage(room, message, "REFEREE")
-            }
+            webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
         }
     }
 
@@ -577,11 +635,9 @@ class HomeViewModel : ViewModel() {
         val isJoinedInBroadcastRoom = activeRooms.value.contains(normalizedBroadcastRoom)
 
         if (isRefereeConnected && broadcastRoom.isNotEmpty() && isJoinedInBroadcastRoom) {
-            val message = "/me [XREF] REGISTRATION CLOSED ($bracketSize/$bracketSize) ✅. PREPARING ROLLING PHASE..."
+            val message = "/me [$turneyTitle] REGISTRATION CLOSED ($bracketSize/$bracketSize) ✅. PREPARING ROLLING PHASE..."
 
-            activeRooms.value.forEach { room ->
-                webSocketRepository.sendMessage(room, message, "REFEREE")
-            }
+            webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
         }
     }
 
@@ -749,5 +805,15 @@ class HomeViewModel : ViewModel() {
         if (matchPhase != MatchPhase.IDLE) {
             startBroadcastingStatus()
         }
+    }
+
+    fun updateTurneyTitle(title: String) {
+        turneyTitle = title
+        viewModelScope.launch { AuthPreferences.saveTurneyTitle(title) }
+    }
+
+    fun updateMultiLoginTemplate(template: String) {
+        multiLoginTemplate = template
+        viewModelScope.launch { AuthPreferences.saveMultiLoginTemplate(template) }
     }
 }

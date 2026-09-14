@@ -28,6 +28,8 @@ object AuthPreferences {
     private val KEY_MATCH_FEE_NOMINAL = stringPreferencesKey("match_fee_nominal")
     private val KEY_WALLET_PIN = stringPreferencesKey("wallet_pin")
     private val KEY_BROADCAST_INTERVAL = stringPreferencesKey("broadcast_interval")
+    private val KEY_TURNEY_TITLE = stringPreferencesKey("turney_title")
+    private val KEY_MULTI_LOGIN_TEMPLATE = stringPreferencesKey("multi_login_template")
 
     suspend fun saveRefereeAuth(id: String, password: String) {
         dataStore.edit { prefs ->
@@ -78,6 +80,14 @@ object AuthPreferences {
         dataStore.edit { prefs -> prefs[KEY_BROADCAST_INTERVAL] = seconds.toString() }
     }
 
+    suspend fun saveTurneyTitle(title: String) {
+        dataStore.edit { prefs -> prefs[KEY_TURNEY_TITLE] = title }
+    }
+
+    suspend fun saveMultiLoginTemplate(template: String) {
+        dataStore.edit { prefs -> prefs[KEY_MULTI_LOGIN_TEMPLATE] = template }
+    }
+
     suspend fun getRefereeId(): String = dataStore.data.map { it[KEY_REFEREE_ID] ?: "" }.first()
     suspend fun getRefereePassword(): String = dataStore.data.map { it[KEY_REFEREE_PASSWORD] ?: "" }.first()
     suspend fun getStarterId(): String = dataStore.data.map { it[KEY_STARTER_ID] ?: "" }.first()
@@ -101,4 +111,6 @@ object AuthPreferences {
     suspend fun getMatchFeeNominal(): String = dataStore.data.map { it[KEY_MATCH_FEE_NOMINAL] ?: "0" }.first()
     suspend fun getWalletPin(): String = dataStore.data.map { it[KEY_WALLET_PIN] ?: "123456" }.first()
     suspend fun getBroadcastInterval(): Int = dataStore.data.map { it[KEY_BROADCAST_INTERVAL]?.toIntOrNull() ?: 60 }.first()
+    suspend fun getTurneyTitle(): String = dataStore.data.map { it[KEY_TURNEY_TITLE] ?: "XREF" }.first()
+    suspend fun getMultiLoginTemplate(): String = dataStore.data.map { it[KEY_MULTI_LOGIN_TEMPLATE] ?: "BRING YOUR 10 MULTI-IDS INTO ROOM {room} NOW!" }.first()
 }

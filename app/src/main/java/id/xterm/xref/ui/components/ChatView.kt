@@ -61,22 +61,12 @@ private fun ChatItem(message: ChatMessage) {
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top
     ) {
-        Text(
-            text = "[${message.time.takeLast(9).replace("Z", "")}]",
-            color = NeonGreen.copy(alpha = 0.4f),
-            fontSize = 9.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(end = 6.dp)
-        )
-        
         when (message.eventType) {
             "room.joined", "room.participant.added", "room.participant.removed" -> {
-                // Formatting for system/snapshot messages
-                val prefix = if (message.room.isNotEmpty()) "${message.room}: " else ""
                 val displayName = if (message.username.isNotEmpty()) "${message.username} " else ""
                 
                 Text(
-                    text = "$prefix$displayName${message.text}",
+                    text = "$displayName${message.text}",
                     color = NeonGreen.copy(alpha = 0.6f),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
