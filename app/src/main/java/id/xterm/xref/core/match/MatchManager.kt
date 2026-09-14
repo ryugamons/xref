@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.util.concurrent.ConcurrentHashMap
 
 sealed class MatchState {
     data object Idle : MatchState()
@@ -24,21 +25,7 @@ data class MatchSide(
     val participants: List<MatchParticipant>
 )
 
-@Singleton
-class MatchManager @Inject constructor(
-    private val webSocketRepository: WebSocketRepository
-) {
-    companion object {
-        private var instance: MatchManager? = null
-        fun getInstance(webSocketRepository: WebSocketRepository): MatchManager {
-            if (instance == null) instance = MatchManager(webSocketRepository)
-            return instance!!
-        }
-    }
-
-    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-    private val json = Json { ignoreUnknownKeys = true }
-
+class MatchSession(val room: String, private val scope: CoroutineScope) {
     private val _state = MutableStateFlow<MatchState>(MatchState.Idle)
     val state = _state.asStateFlow()
 
@@ -54,53 +41,20 @@ class MatchManager @Inject constructor(
     private val _kickCountMap = MutableStateFlow<Map<String, Int>>(emptyMap())
     val kickCountMap = _kickCountMap.asStateFlow()
 
-    private val _kickHistory = MutableStateFlow<List<Long>>(emptyList())
-    val kickHistory = _kickHistory.asStateFlow()
-
-    private val _kps = MutableStateFlow(0f)
-    val kps = _kps.asStateFlow()
-
     private var timerJob: Job? = null
     private var lastKickTime = 0L
 
-    init {
-        scope.launch {
-            webSocketRepository.events.collect { jsonObject ->
-                val type = jsonObject["type"]?.jsonPrimitive?.content
-                if (type == "room.message.received" || type == "room.message") {
-                    val from = jsonObject["username"]?.jsonPrimitive?.content ?: "System"
-                    val body = jsonObject["body"]?.jsonPrimitive?.content ?: ""
-                    
-                    if (body.contains("kicked", ignoreCase = true)) {
-                         handleKickMessage(from, body)
-                    }
-                    
-                    _logs.value = (listOf("$from: $body") + _logs.value).take(100)
-                }
-            }
-        }
-        
-        // Update KPS every second
-        scope.launch {
-            while (isActive) {
-                updateKps()
-                delay(1000)
-            }
-        }
-    }
-
-    fun startMatch(teamAIds: List<String>, teamBIds: List<String>) {
+    fun start(teamAIds: List<String>, teamBIds: List<String>) {
         _teamA.value = MatchSide("Team A", teamAIds.map { MatchParticipant(it) })
         _teamB.value = MatchSide("Team B", teamBIds.map { MatchParticipant(it) })
-        _logs.value = listOf("Match Started: ${teamAIds.size}vs${teamBIds.size}")
+        _logs.value = listOf("Match Started in $room: ${teamAIds.size}vs${teamBIds.size}")
         _state.value = MatchState.Running(3000L)
         _kickCountMap.value = emptyMap()
-        _kickHistory.value = emptyList()
         lastKickTime = System.currentTimeMillis()
         resetTimer()
     }
 
-    private fun handleKickMessage(from: String, body: String) {
+    fun handleKick(from: String, body: String) {
         val timestamp = System.currentTimeMillis()
         
         _kickCountMap.update { current ->
@@ -108,7 +62,6 @@ class MatchManager @Inject constructor(
                 this[from] = (this[from] ?: 0) + 1
             }
         }
-        _kickHistory.update { (it + timestamp).filter { ts -> ts > timestamp - 60000 } }
 
         if (_state.value !is MatchState.Running) return
 
@@ -121,13 +74,6 @@ class MatchManager @Inject constructor(
         updateVoteStatus(from)
         resetTimer()
         checkEndConditions()
-    }
-
-    private fun updateKps() {
-        val now = System.currentTimeMillis()
-        val window = 5000L
-        val kicksInWindow = _kickHistory.value.count { it > now - window }
-        _kps.value = kicksInWindow / (window / 1000f)
     }
 
     private fun updateVoteStatus(id: String) {
@@ -178,8 +124,68 @@ class MatchManager @Inject constructor(
         _logs.value = (listOf("Match Ended: $reason") + _logs.value).take(50)
     }
 
-    fun stopMatch() {
+    fun stop() {
         timerJob?.cancel()
         _state.value = MatchState.Idle
+    }
+}
+
+@Singleton
+class MatchManager @Inject constructor(
+    private val webSocketRepository: WebSocketRepository
+) {
+    companion object {
+        private var instance: MatchManager? = null
+        fun getInstance(webSocketRepository: WebSocketRepository): MatchManager {
+            if (instance == null) instance = MatchManager(webSocketRepository)
+            return instance!!
+        }
+    }
+
+    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val sessions = ConcurrentHashMap<String, MatchSession>()
+
+    private val _activeSessions = MutableStateFlow<List<String>>(emptyList())
+    val activeSessions = _activeSessions.asStateFlow()
+
+    init {
+        scope.launch {
+            webSocketRepository.events.collect { jsonObject ->
+                val type = jsonObject["type"]?.jsonPrimitive?.content
+                if (type == "room.message.received" || type == "room.message") {
+                    val room = jsonObject["room"]?.jsonPrimitive?.content?.lowercase() ?: ""
+                    val from = jsonObject["username"]?.jsonPrimitive?.content ?: "System"
+                    val body = jsonObject["body"]?.jsonPrimitive?.content ?: ""
+                    
+                    if (body.contains("kicked", ignoreCase = true)) {
+                         sessions[room]?.handleKick(from, body)
+                    }
+                }
+            }
+        }
+    }
+
+    fun startMatch(room: String, teamAIds: List<String>, teamBIds: List<String>) {
+        val normalizedRoom = room.lowercase()
+        val session = sessions.getOrPut(normalizedRoom) { 
+            MatchSession(normalizedRoom, scope) 
+        }
+        session.start(teamAIds, teamBIds)
+        updateActiveSessions()
+    }
+
+    fun getSession(room: String): MatchSession? {
+        return sessions[room.lowercase()]
+    }
+
+    private fun updateActiveSessions() {
+        _activeSessions.value = sessions.keys().toList()
+    }
+
+    fun stopMatch(room: String) {
+        val normalizedRoom = room.lowercase()
+        sessions[normalizedRoom]?.stop()
+        sessions.remove(normalizedRoom)
+        updateActiveSessions()
     }
 }

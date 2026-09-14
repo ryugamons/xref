@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -37,16 +38,19 @@ fun XrefTextField(
     modifier: Modifier = Modifier,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
-    keyboardActions: KeyboardActions = KeyboardActions.Default
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    borderColor: Color = DarkGreen700
 ) {
     Column(modifier = modifier) {
-        Text(
-            text = label.uppercase(),
-            color = TextDim,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 4.dp, start = 4.dp)
-        )
+        if (label.isNotEmpty()) {
+            Text(
+                text = label.uppercase(),
+                color = TextDim,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 4.dp, start = 4.dp)
+            )
+        }
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
@@ -54,7 +58,7 @@ fun XrefTextField(
                 .fillMaxWidth()
                 .height(42.dp)
                 .background(DarkGreen900, RoundedCornerShape(8.dp))
-                .border(1.dp, DarkGreen700, RoundedCornerShape(8.dp)),
+                .border(1.dp, borderColor, RoundedCornerShape(8.dp)),
             textStyle = TextStyle(
                 color = NeonGreen,
                 fontSize = 11.sp,

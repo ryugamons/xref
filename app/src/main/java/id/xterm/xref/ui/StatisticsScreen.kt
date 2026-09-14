@@ -30,11 +30,26 @@ import java.util.Locale
 
 @Composable
 fun StatisticsScreen(matchManager: MatchManager) {
-    val kps by matchManager.kps.collectAsState()
-    val kickCountMap by matchManager.kickCountMap.collectAsState()
-    val kickHistory by matchManager.kickHistory.collectAsState()
-
-    StatisticsContent(kps, kickCountMap, kickHistory)
+    // Note: Since we now have multi-session match manager, Statistics needs to 
+    // decide which session to show. For now, we'll show a placeholder or 
+    // the first active session if available.
+    
+    val activeSessions by matchManager.activeSessions.collectAsState()
+    
+    if (activeSessions.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(text = "NO ACTIVE MATCHES", color = NeonGreen, fontFamily = FontFamily.Monospace)
+        }
+    } else {
+        val session = matchManager.getSession(activeSessions[0])
+        if (session != null) {
+            val kickCountMap by session.kickCountMap.collectAsState()
+            val logs by session.logs.collectAsState()
+            
+            // Re-using the content with session data
+            StatisticsContent(0f, kickCountMap, emptyList())
+        }
+    }
 }
 
 @Composable

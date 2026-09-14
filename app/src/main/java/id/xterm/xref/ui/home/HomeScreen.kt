@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Groups
@@ -45,9 +47,10 @@ private enum class HomeSection {
 }
 
 @Composable
-fun HomeScreen(
+fun DashboardScreen(
     viewModel: HomeViewModel = viewModel(),
-    onNavigateToRooms: () -> Unit = {}
+    onNavigateToRooms: () -> Unit = {},
+    onLoadToDashboard: (teamA: List<String>, teamB: List<String>) -> Unit = { _, _ -> }
 ) {
     var activeSection by remember { mutableStateOf(HomeSection.REFEREE) }
     
@@ -108,7 +111,12 @@ fun HomeScreen(
                     .weight(1f)
                     .fillMaxHeight()
             ) {
-                ContentArea(activeSection = activeSection, viewModel = viewModel, onNavigateToRooms = onNavigateToRooms)
+                ContentArea(
+                    activeSection = activeSection,
+                    viewModel = viewModel,
+                    onNavigateToRooms = onNavigateToRooms,
+                    onLoadToDashboard = onLoadToDashboard
+                )
             }
         }
     } else {
@@ -160,7 +168,12 @@ fun HomeScreen(
 
             // Content Area
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                ContentArea(activeSection = activeSection, viewModel = viewModel, onNavigateToRooms = onNavigateToRooms)
+                ContentArea(
+                    activeSection = activeSection,
+                    viewModel = viewModel,
+                    onNavigateToRooms = onNavigateToRooms,
+                    onLoadToDashboard = onLoadToDashboard
+                )
             }
         }
     }
@@ -170,7 +183,8 @@ fun HomeScreen(
 private fun ContentArea(
     activeSection: HomeSection,
     viewModel: HomeViewModel,
-    onNavigateToRooms: () -> Unit
+    onNavigateToRooms: () -> Unit,
+    onLoadToDashboard: (List<String>, List<String>) -> Unit
 ) {
     AnimatedVisibility(
         visible = activeSection == HomeSection.REFEREE,
@@ -193,7 +207,7 @@ private fun ContentArea(
         enter = fadeIn() + expandVertically(),
         exit = fadeOut() + shrinkVertically()
     ) {
-        MatchSection(viewModel)
+        MatchSection(viewModel, onLoadToDashboard)
     }
 
     AnimatedVisibility(
@@ -480,9 +494,18 @@ private fun RoomSection(viewModel: HomeViewModel, onNavigateToRooms: () -> Unit)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MatchSection(viewModel: HomeViewModel) {
+private fun MatchSection(
+    viewModel: HomeViewModel,
+    onLoadToDashboard: (List<String>, List<String>) -> Unit
+) {
     XrefCard(title = "OPEN MATCH SETUP", modifier = Modifier.fillMaxHeight()) {
-        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        val scrollState = rememberScrollState()
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(scrollState),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             // Dropdown for Team Count
             var expanded by remember { mutableStateOf(false) }
             val options = listOf(2, 4, 8, 16, 32, 64)
@@ -545,70 +568,231 @@ private fun MatchSection(viewModel: HomeViewModel) {
                 }
             }
 
+            // Registration Fee Section
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(DarkGreen900)
+                    .border(1.dp, DarkGreen700, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = viewModel.isRegistrationFeeEnabled,
+                    onCheckedChange = { viewModel.updateRegistrationFee(it) },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = NeonGreen,
+                        uncheckedColor = TextDim,
+                        checkmarkColor = DarkBackground
+                    )
+                )
+                Text(
+                    text = "REGISTRATION FEE",
+                    color = if (viewModel.isRegistrationFeeEnabled) NeonGreen else TextDim,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f)
+                )
+                
+                if (viewModel.isRegistrationFeeEnabled) {
+                    XrefTextField(
+                        value = viewModel.registrationFeeNominal,
+                        onValueChange = { viewModel.updateRegistrationFeeNominal(it) },
+                        label = "CREDITS",
+                        modifier = Modifier.width(100.dp)
+                    )
+                } else {
+                    Text(
+                        text = "FREE",
+                        color = NeonGreen.copy(alpha = 0.5f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // DYNAMIC MATCH BUTTON
             val buttonText = when (viewModel.matchPhase) {
                 MatchPhase.IDLE -> "OPEN REGISTRATION"
-                MatchPhase.REGISTRATION -> "START ROLL (MANUAL)"
-                MatchPhase.ROLLING -> "WAITING FOR ROLLS..."
-                MatchPhase.COMPLETED -> "RE-OPEN MATCH"
+                MatchPhase.REGISTRATION -> "START ROLL"
+                MatchPhase.ROLLING -> if (viewModel.participantRolls.size == viewModel.registeredParticipants.size) "SEED BRACKET" else "WAITING FOR ROLLS (${viewModel.participantRolls.size}/${viewModel.registeredParticipants.size})"
+                MatchPhase.BRACKET_READY -> "START BATTLE"
+                MatchPhase.IN_PROGRESS -> "BATTLE IN PROGRESS"
+                MatchPhase.FINISHED -> "TOURNAMENT FINISHED"
             }
             
             val isButtonEnabled = when (viewModel.matchPhase) {
                 MatchPhase.IDLE -> viewModel.isRefereeConnected
-                MatchPhase.REGISTRATION -> viewModel.registeredParticipants.isNotEmpty()
-                MatchPhase.ROLLING -> false
-                MatchPhase.COMPLETED -> true
+                MatchPhase.REGISTRATION -> viewModel.registeredParticipants.size == viewModel.bracketSize
+                MatchPhase.ROLLING -> viewModel.participantRolls.size == viewModel.registeredParticipants.size
+                MatchPhase.BRACKET_READY -> true
+                MatchPhase.IN_PROGRESS -> true // To allow manual finish if needed
+                MatchPhase.FINISHED -> true
             }
 
-            XrefButton(
-                text = buttonText,
-                onClick = { 
-                    when (viewModel.matchPhase) {
-                        MatchPhase.IDLE -> viewModel.toggleMatchRegistration()
-                        MatchPhase.REGISTRATION -> viewModel.startRollPhaseManually()
-                        MatchPhase.COMPLETED -> viewModel.toggleMatchRegistration()
-                        else -> {}
-                    }
-                },
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                height = 56.dp,
-                enabled = isButtonEnabled,
-                containerColor = when (viewModel.matchPhase) {
-                    MatchPhase.REGISTRATION -> Color(0xFFFFB300)
-                    MatchPhase.ROLLING -> Color.Gray
-                    else -> NeonGreen
-                },
-                contentColor = Color.Black
-            )
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                XrefButton(
+                    text = buttonText,
+                    onClick = { 
+                        when (viewModel.matchPhase) {
+                            MatchPhase.IDLE -> viewModel.toggleMatchRegistration()
+                            MatchPhase.REGISTRATION -> viewModel.startRollPhaseManually()
+                            MatchPhase.ROLLING -> viewModel.seedBracketManually()
+                            MatchPhase.BRACKET_READY -> {
+                                viewModel.getFirstMatch()?.let { (a, b) ->
+                                    onLoadToDashboard(listOf(a), listOf(b))
+                                }
+                            }
+                            MatchPhase.IN_PROGRESS -> viewModel.finishTournamentManually()
+                            MatchPhase.FINISHED -> viewModel.toggleMatchRegistration()
+                            else -> {}
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    height = 56.dp,
+                    enabled = isButtonEnabled,
+                    containerColor = when (viewModel.matchPhase) {
+                        MatchPhase.REGISTRATION -> Color(0xFFFFB300)
+                        MatchPhase.ROLLING, MatchPhase.BRACKET_READY -> Color.Gray
+                        MatchPhase.IN_PROGRESS -> Color(0xFF2196F3)
+                        else -> NeonGreen
+                    },
+                    contentColor = Color.Black
+                )
+
+                if (viewModel.matchPhase == MatchPhase.REGISTRATION && viewModel.registeredParticipants.isNotEmpty()) {
+                    XrefButton(
+                        text = "CANCEL MATCH",
+                        onClick = { viewModel.cancelMatchAndRefund() },
+                        modifier = Modifier.weight(1f),
+                        height = 56.dp,
+                        containerColor = Color(0xFF8B2525),
+                        contentColor = Color.White
+                    )
+                }
+            }
             
+            if (viewModel.matchPhase == MatchPhase.IN_PROGRESS || viewModel.matchPhase == MatchPhase.BRACKET_READY) {
+                Spacer(modifier = Modifier.height(8.dp))
+                XrefButton(
+                    text = "ABORT TOURNAMENT",
+                    onClick = { viewModel.toggleMatchRegistration() },
+                    modifier = Modifier.fillMaxWidth(),
+                    height = 42.dp,
+                    containerColor = Color(0xFF8B2525),
+                    contentColor = Color.White
+                )
+            }
+            
+            if (viewModel.matchPhase == MatchPhase.IDLE || viewModel.matchPhase == MatchPhase.FINISHED) {
+                if (viewModel.registeredParticipants.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    XrefButton(
+                        text = "CLEAR ALL DATA",
+                        onClick = { viewModel.clearAllMatchData() },
+                        modifier = Modifier.fillMaxWidth(),
+                        height = 42.dp,
+                        containerColor = Color(0xFF444444),
+                        contentColor = Color.White
+                    )
+                }
+            }
+            
+            // Manual Add Participant Row
+            if (viewModel.matchPhase == MatchPhase.REGISTRATION) {
+                Spacer(modifier = Modifier.height(16.dp))
+                var newParticipantName by remember { mutableStateOf("") }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    XrefTextField(
+                        value = newParticipantName,
+                        onValueChange = { newParticipantName = it },
+                        label = "MANUAL TEAM NAME",
+                        modifier = Modifier.weight(0.7f)
+                    )
+                    XrefButton(
+                        text = "+ ADD",
+                        onClick = {
+                            viewModel.addParticipant(newParticipantName)
+                            newParticipantName = ""
+                        },
+                        modifier = Modifier.weight(0.3f),
+                        height = 42.dp,
+                        enabled = newParticipantName.isNotBlank() && viewModel.registeredParticipants.size < viewModel.bracketSize
+                    )
+                }
+            }
+
             // Participants List Card
             if (viewModel.registeredParticipants.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(16.dp))
                 XrefCard(title = "REGISTERED PARTICIPANTS (${viewModel.registeredParticipants.size}/${viewModel.bracketSize})") {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        viewModel.registeredParticipants.forEach { participant ->
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        viewModel.registeredParticipants.forEachIndexed { index, participant ->
                             val roll = viewModel.participantRolls[participant]
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.Bottom,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text(
-                                    text = participant,
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontFamily = FontFamily.Monospace
+                                // Editable Name
+                                XrefTextField(
+                                    value = participant,
+                                    onValueChange = { newValue -> 
+                                        val oldRoll = viewModel.participantRolls.remove(participant)
+                                        viewModel.registeredParticipants[index] = newValue
+                                        if (oldRoll != null) {
+                                            viewModel.participantRolls[newValue] = oldRoll
+                                        }
+                                    },
+                                    label = "NAME",
+                                    modifier = Modifier.weight(1f)
                                 )
-                                Text(
-                                    text = roll?.toString() ?: "PENDING",
-                                    color = if (roll != null) NeonGreen else TextDim,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
+                                
+                                // Editable Roll
+                                XrefTextField(
+                                    value = roll ?: "",
+                                    onValueChange = { newValue ->
+                                        if (newValue.isEmpty() || newValue.all { it.isDigit() }) {
+                                            viewModel.updateParticipantRoll(participant, newValue)
+                                        }
+                                    },
+                                    label = "ROLL",
+                                    modifier = Modifier.width(90.dp),
+                                    borderColor = if (roll != null && viewModel.duplicateRolls.contains(roll))
+                                        Color(0xFFFFA500)
+                                    else DarkGreen700
                                 )
+                                
+                                // Remove Participant Button
+                                IconButton(
+                                    onClick = { 
+                                        viewModel.registeredParticipants.removeAt(index)
+                                        viewModel.participantRolls.remove(participant)
+                                    },
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .background(Color(0x22FF5252), RoundedCornerShape(8.dp))
+                                        .border(1.dp, Color(0x44FF5252), RoundedCornerShape(8.dp))
+                                ) {
+                                    Text(
+                                        text = "×",
+                                        color = Color(0xFFFF5252),
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }

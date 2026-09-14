@@ -48,9 +48,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.xterm.xref.core.match.MatchManager
 import id.xterm.xref.data.repository.WebSocketRepository
-import id.xterm.xref.ui.dashboard.DashboardScreen
-import id.xterm.xref.ui.dashboard.DashboardViewModel
-import id.xterm.xref.ui.home.HomeScreen
+import id.xterm.xref.ui.arena.ArenaViewModel
+import id.xterm.xref.ui.home.DashboardScreen
 import id.xterm.xref.ui.home.HomeViewModel
 import id.xterm.xref.ui.navigation.Destination
 import id.xterm.xref.ui.theme.NeonGreen
@@ -59,10 +58,10 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
-    dashboardViewModel: DashboardViewModel = viewModel(),
+    arenaViewModel: ArenaViewModel = viewModel(),
     homeViewModel: HomeViewModel = viewModel()
 ) {
-    val matchManager = dashboardViewModel.matchManager
+    val matchManager = arenaViewModel.matchManager
     var showInfoDialog by remember { mutableStateOf(false) }
 
     val pagerState = rememberPagerState(initialPage = BottomTab.entries.indexOf(BottomTab.Home)) {
@@ -167,26 +166,43 @@ fun MainScreen(
                 modifier = Modifier.fillMaxSize()
             ) { page ->
                 when (BottomTab.entries[page]) {
-                    BottomTab.Home -> HomeScreen(
+                    BottomTab.Home -> DashboardScreen(
                         viewModel = homeViewModel,
                         onNavigateToRooms = {
                             coroutineScope.launch {
                                 pagerState.animateScrollToPage(BottomTab.entries.indexOf(BottomTab.Room))
+                            }
+                        },
+                        onLoadToDashboard = { teamA, teamB ->
+                            if (teamA.isNotEmpty() && teamB.isNotEmpty()) {
+                                val room = homeViewModel.callMatchSummon(teamA[0], teamB[0])
+                                arenaViewModel.startMatch(room, teamA, teamB)
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(BottomTab.entries.indexOf(BottomTab.Room))
+                                }
                             }
                         }
                     )
                     BottomTab.Bracket -> BracketScreen(
                         homeViewModel = homeViewModel,
                         onLoadToDashboard = { teamA, teamB ->
-                            matchManager.startMatch(teamA, teamB)
-                            coroutineScope.launch {
-                                pagerState.animateScrollToPage(BottomTab.entries.indexOf(BottomTab.Dashboard))
+                            if (teamA.isNotEmpty() && teamB.isNotEmpty()) {
+                                // 1. Summon the match in an available battle room
+                                val room = homeViewModel.callMatchSummon(teamA[0], teamB[0])
+                                
+                                // 2. Start the automated match logic in that specific room via DashboardViewModel
+                                // to ensure the selected room is updated and match is registered
+                                arenaViewModel.startMatch(room, teamA, teamB)
+                                
+                                // 3. Switch view to Room tab (which now serves as Arena)
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(BottomTab.entries.indexOf(BottomTab.Room))
+                                }
                             }
                         }
                     )
                     BottomTab.Statistics -> StatisticsScreen(matchManager)
-                    BottomTab.Room -> RoomScreen(homeViewModel)
-                    BottomTab.Dashboard -> DashboardScreen(dashboardViewModel, homeViewModel)
+                    BottomTab.Room -> RoomScreen(homeViewModel, arenaViewModel)
                 }
             }
         }
@@ -201,9 +217,8 @@ fun ScreenPlaceholder(title: String) {
 }
 
 enum class BottomTab(val label: String, val icon: ImageVector, val destination: Destination) {
-    Home("Dashboard", Icons.Rounded.Home, Destination.Home),
-    Room("Rooms", Icons.AutoMirrored.Rounded.Chat, Destination.Room),
-    Bracket("Bracket", Icons.AutoMirrored.Rounded.List, Destination.Bracket),
-    Statistics("Stats", Icons.Rounded.Assessment, Destination.Statistics),
-    Dashboard("Arena", Icons.Rounded.Sports, Destination.Dashboard)
+    Home("DASHBOARD", Icons.Rounded.Home, Destination.Home),
+    Room("ROOM", Icons.AutoMirrored.Rounded.Chat, Destination.Room),
+    Bracket("BRACKET", Icons.AutoMirrored.Rounded.List, Destination.Bracket),
+    Statistics("STATS", Icons.Rounded.Assessment, Destination.Statistics)
 }

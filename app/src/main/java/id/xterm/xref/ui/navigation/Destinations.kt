@@ -13,6 +13,4 @@ sealed interface Destination : NavKey {
     data object Statistics : Destination
     @Serializable
     data object Room : Destination
-    @Serializable
-    data object Dashboard : Destination
 }

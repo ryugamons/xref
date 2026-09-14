@@ -1,5 +1,6 @@
 package id.xterm.xref.ui.home
 
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -21,7 +22,7 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 enum class MatchPhase {
-    IDLE, REGISTRATION, ROLLING, COMPLETED
+    IDLE, REGISTRATION, ROLLING, BRACKET_READY, IN_PROGRESS, FINISHED
 }
 
 class HomeViewModel : ViewModel() {
@@ -38,6 +39,7 @@ class HomeViewModel : ViewModel() {
 
     // Match configuration
     var bracketSize by mutableStateOf(8)
+    var isRegistrationFree by mutableStateOf(false)
     var isRegistrationFeeEnabled by mutableStateOf(false)
     var registrationFeeNominal by mutableStateOf("0")
     
@@ -48,7 +50,16 @@ class HomeViewModel : ViewModel() {
     // Match Active State
     var matchPhase by mutableStateOf(MatchPhase.IDLE)
     val registeredParticipants = mutableStateListOf<String>()
-    val participantRolls = mutableStateMapOf<String, Int>()
+    val participantRolls = mutableStateMapOf<String, String>()
+    val participantsWhoMustReRoll = mutableStateListOf<String>()
+    
+    val duplicateRolls by derivedStateOf {
+        participantRolls.values
+            .filter { it.toIntOrNull() != null }
+            .groupBy { it }
+            .filter { it.value.size > 1 }
+            .keys
+    }
     
     private var broadcastJob: Job? = null
     private var historyCheckJob: Job? = null
@@ -90,6 +101,7 @@ class HomeViewModel : ViewModel() {
 
             bracketSize = AuthPreferences.getMatchTeamCount()
             isRegistrationFeeEnabled = AuthPreferences.getMatchFeeEnabled()
+            isRegistrationFree = !isRegistrationFeeEnabled
             registrationFeeNominal = AuthPreferences.getMatchFeeNominal()
             
             walletPin = AuthPreferences.getWalletPin()
@@ -107,7 +119,9 @@ class HomeViewModel : ViewModel() {
                     is ConnectionState.Connecting -> refereeStatusText = "connecting"
                     is ConnectionState.Disconnected, ConnectionState.Idle -> {
                         refereeStatusText = "offline"
-                        if (matchPhase != MatchPhase.IDLE) resetMatch()
+                        if (matchPhase != MatchPhase.IDLE && matchPhase != MatchPhase.FINISHED) {
+                           // Stay in current phase even if disconnected temporarily
+                        }
                     }
                     is ConnectionState.Error -> {
                         refereeStatusText = if (state.message.contains("Broken pipe", ignoreCase = true) || 
@@ -149,12 +163,10 @@ class HomeViewModel : ViewModel() {
                 if (json["type"]?.jsonPrimitive?.content == "wallet.updated" && matchPhase == MatchPhase.REGISTRATION) {
                     val usernameInPacket = json["username"]?.jsonPrimitive?.content
                     
-                    // If our own balance updated, it might be a transfer
                     if (usernameInPacket == refereeId) {
                         checkWalletHistoryThrottled()
                     }
                     
-                    // Registration could be free
                     if (!isRegistrationFeeEnabled && usernameInPacket != null && 
                         usernameInPacket != refereeId && usernameInPacket != starterId) {
                         if (!registeredParticipants.contains(usernameInPacket) && registeredParticipants.size < bracketSize) {
@@ -187,7 +199,6 @@ class HomeViewModel : ViewModel() {
                 val roomName = pair.first
                 val message = pair.second
                 
-                // 1. Detect transfer message from system
                 if (matchPhase == MatchPhase.REGISTRATION && message.username == "system") {
                     val regex = "([a-zA-Z0-9_]+) transferred ([0-9]+) credits".toRegex(RegexOption.IGNORE_CASE)
                     val match = regex.find(message.text)
@@ -198,17 +209,50 @@ class HomeViewModel : ViewModel() {
                     }
                 }
 
-                // 2. Detect Roll results: ** hex rolls 6 **
                 if (matchPhase == MatchPhase.ROLLING) {
-                    val rollRegex = "\\*\\*\\s+([a-zA-Z0-9_]+)\\s+rolls\\s+([0-9]+)\\s+\\*\\*".toRegex(RegexOption.IGNORE_CASE)
+                    val rollRegex = "(?:\\*\\*\\s+)?([a-zA-Z0-9_]+)\\s+rolls\\s+([0-9]+)".toRegex(RegexOption.IGNORE_CASE)
                     val rollMatch = rollRegex.find(message.text)
                     if (rollMatch != null) {
                         val roller = rollMatch.groupValues[1]
-                        val value = rollMatch.groupValues[2].toIntOrNull() ?: 0
+                        val value = rollMatch.groupValues[2]
                         
-                        if (registeredParticipants.contains(roller) && !participantRolls.containsKey(roller)) {
-                            participantRolls[roller] = value
-                            checkAllRollsCompleted()
+                        if (registeredParticipants.contains(roller)) {
+                            val hasExisting = participantRolls.containsKey(roller)
+                            val mustReRoll = participantsWhoMustReRoll.contains(roller)
+                            
+                            if (!hasExisting || mustReRoll) {
+                                val isDuplicateOfSomeoneElse = participantRolls.filter { it.key != roller }.values.contains(value)
+                                
+                                if (isDuplicateOfSomeoneElse) {
+                                    val normalizedBroadcastRoom = broadcastRoom.lowercase()
+                                    if (isRefereeConnected && broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
+                                        val duplicateMsg = "[SYSTEM] Duplicate roll: $value from $roller. Please re-roll!"
+                                        webSocketRepository.sendMessage(normalizedBroadcastRoom, duplicateMsg, "REFEREE")
+                                    }
+                                    if (!participantsWhoMustReRoll.contains(roller)) {
+                                        participantsWhoMustReRoll.add(roller)
+                                    }
+                                } else {
+                                    participantsWhoMustReRoll.remove(roller)
+                                }
+                                
+                                participantRolls[roller] = value
+                                checkRollsComplete()
+                            }
+                        }
+                    }
+                }
+
+                // 3. Detect "JOIN" command for FREE matches
+                if (matchPhase == MatchPhase.REGISTRATION && !isRegistrationFeeEnabled) {
+                    if (message.text.trim().equals("JOIN", ignoreCase = true)) {
+                        val sender = message.username
+                        if (sender != "system" && sender != refereeId && sender != starterId) {
+                            if (!registeredParticipants.contains(sender) && registeredParticipants.size < bracketSize) {
+                                registeredParticipants.add(sender)
+                                sendRegistrationProgress(sender, 0L, 0L)
+                                checkRegistrationFull()
+                            }
                         }
                     }
                 }
@@ -240,30 +284,88 @@ class HomeViewModel : ViewModel() {
     }
 
     fun toggleMatchRegistration() {
-        if (matchPhase == MatchPhase.IDLE) {
+        if (matchPhase == MatchPhase.IDLE || matchPhase == MatchPhase.FINISHED) {
             if (!isRefereeConnected) return
+            // Start fresh registration or continue with existing participants
             matchPhase = MatchPhase.REGISTRATION
             startBroadcastingStatus()
         } else {
-            resetMatch()
+            // STOP/ABORT - We keep the participants and rolls!
+            stopBroadcasting()
+            matchPhase = MatchPhase.IDLE
         }
     }
 
-    private fun resetMatch() {
-        matchPhase = MatchPhase.IDLE
+    fun cancelMatchAndRefund() {
+        viewModelScope.launch {
+            val normalizedBroadcastRoom = broadcastRoom.lowercase()
+            
+            if (isRefereeConnected && broadcastRoom.isNotEmpty()) {
+                val isJoined = activeRooms.value.contains(normalizedBroadcastRoom)
+                if (isJoined) {
+                    if (isRegistrationFree || !isRegistrationFeeEnabled) {
+                        webSocketRepository.sendMessage(
+                            normalizedBroadcastRoom,
+                            "[SYSTEM] Match cancelled by Referee. Registration was free, no refunds required.",
+                            "REFEREE"
+                        )
+                    } else {
+                        val participantsToRefund = registeredParticipants.toList()
+                        webSocketRepository.sendMessage(
+                            normalizedBroadcastRoom,
+                            "/me [SYSTEM] Match cancelled. Refunding credits to all registered participants.",
+                            "REFEREE"
+                        )
+                        
+                        if (isRegistrationFeeEnabled) {
+                            val feeMilliCr = registrationFeeNominal.toLongOrNull()?.let { it * 1000 } ?: 0L
+                            if (feeMilliCr > 0) {
+                                participantsToRefund.forEach { participant ->
+                                    // Send broadcast notification/command (respects 10ms queue)
+                                    webSocketRepository.sendMessage(
+                                        normalizedBroadcastRoom,
+                                        "/me [SYSTEM] Refunding ${feeMilliCr / 1000}CR to ${participant.uppercase()}...",
+                                        "REFEREE"
+                                    )
+                                    // Actual refund via API
+                                    webSocketRepository.sendTransfer(participant, feeMilliCr, walletPin, "REFEREE")
+                                    
+                                    // Explicit throttling as requested
+                                    delay(10)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            clearAllMatchData()
+        }
+    }
+
+    fun clearAllMatchData() {
         stopBroadcasting()
         registeredParticipants.clear()
         participantRolls.clear()
+        participantsWhoMustReRoll.clear()
+        matchPhase = MatchPhase.IDLE
+    }
+    
+    fun finishTournamentManually() {
+        matchPhase = MatchPhase.FINISHED
+    }
+
+    fun addParticipant(name: String) {
+        if (name.isNotBlank() && registeredParticipants.size < bracketSize && matchPhase == MatchPhase.REGISTRATION) {
+            if (!registeredParticipants.contains(name)) {
+                registeredParticipants.add(name)
+                sendRegistrationProgress(name, 0L, 0L)
+            }
+        }
     }
 
     private fun checkRegistrationFull() {
-        if (registeredParticipants.size >= bracketSize) {
-            matchPhase = MatchPhase.ROLLING
-            // Final registration message
-            sendMatchClosedMessage()
-            // Switch to instruction for Rolling
-            startBroadcastingStatus()
-        }
+        // Manual transition via "START ROLL" button
     }
 
     fun startRollPhaseManually() {
@@ -300,7 +402,9 @@ class HomeViewModel : ViewModel() {
         if (isRefereeConnected && broadcastRoom.isNotEmpty() && isJoinedInBroadcastRoom) {
             val joinedText = if (registeredParticipants.isEmpty()) "" else registeredParticipants.joinToString(", ")
             val feeText = if (isRegistrationFeeEnabled) "$registrationFeeNominal CR" else "FREE"
-            val message = "/me [XREF] OPEN MATCH $bracketSize USER - FEE $feeText - TRF ID $refereeId [$joinedText]"
+            val instruction = if (isRegistrationFeeEnabled) "TRF ID $refereeId" else "Type JOIN to enter!"
+            
+            val message = "/me [XREF] OPEN MATCH $bracketSize USER - FEE $feeText - $instruction [$joinedText]"
 
             activeRooms.value.forEach { room ->
                 webSocketRepository.sendMessage(room, message, "REFEREE")
@@ -323,42 +427,104 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    private fun checkAllRollsCompleted() {
-        if (participantRolls.size >= registeredParticipants.size) {
-            matchPhase = MatchPhase.COMPLETED
+    fun seedBracketManually() {
+        if (matchPhase == MatchPhase.ROLLING && participantRolls.size >= registeredParticipants.size) {
+            matchPhase = MatchPhase.BRACKET_READY
             stopBroadcasting()
             applyRollSeeding()
         }
     }
 
+    private fun checkRollsComplete() {
+        if (matchPhase == MatchPhase.ROLLING && 
+            participantRolls.size >= registeredParticipants.size && 
+            duplicateRolls.isEmpty()) {
+            matchPhase = MatchPhase.BRACKET_READY
+            stopBroadcasting()
+            applyRollSeeding()
+        }
+    }
+
+    fun updateParticipantRoll(name: String, rollText: String) {
+        if (rollText.isEmpty()) {
+            participantRolls.remove(name)
+            participantsWhoMustReRoll.remove(name)
+            checkRollsComplete()
+            return
+        }
+        val rollInt = rollText.toIntOrNull() ?: return
+        val valueStr = rollInt.toString()
+        participantRolls[name] = valueStr
+
+        val isDuplicateOfSomeoneElse = participantRolls.filter { it.key != name }.values.contains(valueStr)
+        if (isDuplicateOfSomeoneElse) {
+            val normalizedBroadcastRoom = broadcastRoom.lowercase()
+            if (isRefereeConnected && broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
+                val duplicateMsg = "[SYSTEM] Duplicate roll: $valueStr from $name. Please re-roll!"
+                webSocketRepository.sendMessage(normalizedBroadcastRoom, duplicateMsg, "REFEREE")
+            }
+            if (!participantsWhoMustReRoll.contains(name)) {
+                participantsWhoMustReRoll.add(name)
+            }
+        } else {
+            participantsWhoMustReRoll.remove(name)
+        }
+        checkRollsComplete()
+    }
+
     private fun applyRollSeeding() {
-        // Sorting: High vs Low
-        // Get pairs of (username, roll)
-        val sortedByRoll = participantRolls.toList().sortedByDescending { it.second }
-        
+        val sortedByRoll = participantRolls.toList().sortedByDescending { it.second.toIntOrNull() ?: 0 }
         val newList = mutableListOf<String>()
         val n = sortedByRoll.size
         
-        // High vs Low pairing: 1 vs N, 2 vs N-1, etc.
         for (i in 0 until n / 2) {
-            newList.add(sortedByRoll[i].first)      // Highest
-            newList.add(sortedByRoll[n - 1 - i].first) // Lowest
+            newList.add(sortedByRoll[i].first)      
+            newList.add(sortedByRoll[n - 1 - i].first) 
         }
         
-        // Update the list that BracketScreen uses
         registeredParticipants.clear()
         registeredParticipants.addAll(newList)
-        
-        // Broadcast result
         broadcastSeedingResult()
     }
 
     private fun broadcastSeedingResult() {
         val normalizedBroadcastRoom = broadcastRoom.lowercase()
         if (isRefereeConnected && activeRooms.value.contains(normalizedBroadcastRoom)) {
-            val message = "/me [XREF] ROLLING COMPLETED. BRACKET GENERATED (HIGH vs LOW). CHECK BRACKET TAB!"
+            val pairs = mutableListOf<String>()
+            for (i in 0 until registeredParticipants.size step 2) {
+                if (i + 1 < registeredParticipants.size) {
+                    pairs.add("${registeredParticipants[i].uppercase()} vs ${registeredParticipants[i+1].uppercase()}")
+                }
+            }
+            val seedingText = pairs.joinToString(" | ")
+            val message = "/me [XREF] ROLLING COMPLETED. BRACKET GENERATED: $seedingText"
             webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
         }
+    }
+    
+    fun callMatchSummon(teamA: String, teamB: String): String {
+        matchPhase = MatchPhase.IN_PROGRESS
+        val normalizedBroadcastRoom = broadcastRoom.lowercase()
+        
+        // Find a room to use: first joined battle room, OR first battle room, OR "arena"
+        val roomToUse = battleRooms.firstOrNull { 
+            it.isNotEmpty() && activeRooms.value.contains(it.lowercase()) && it.lowercase() != normalizedBroadcastRoom 
+        } ?: battleRooms.firstOrNull { it.isNotEmpty() } ?: "arena"
+
+        if (isRefereeConnected) {
+            // Join the room if not already joined
+            if (!activeRooms.value.contains(roomToUse.lowercase())) {
+                webSocketRepository.joinRoom(roomToUse, "REFEREE")
+            }
+            
+            // Send summon message if in broadcast room
+            if (broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
+                val message = "/me [XREF] SUMMON MATCH: ${teamA.uppercase()} vs ${teamB.uppercase()}. ALL PLAYERS ENTER ROOM ${roomToUse.uppercase()} NOW!"
+                webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
+            }
+        }
+        
+        return roomToUse
     }
 
     fun processTransfer(sender: String, amountMilliCr: Long) {
@@ -411,13 +577,17 @@ class HomeViewModel : ViewModel() {
         val isJoinedInBroadcastRoom = activeRooms.value.contains(normalizedBroadcastRoom)
 
         if (isRefereeConnected && broadcastRoom.isNotEmpty() && isJoinedInBroadcastRoom) {
-            val joinedText = registeredParticipants.joinToString(", ")
             val message = "/me [XREF] REGISTRATION CLOSED ($bracketSize/$bracketSize) ✅. PREPARING ROLLING PHASE..."
 
             activeRooms.value.forEach { room ->
                 webSocketRepository.sendMessage(room, message, "REFEREE")
             }
         }
+    }
+
+    fun getFirstMatch(): Pair<String, String>? {
+        if (registeredParticipants.size < 2) return null
+        return Pair(registeredParticipants[0], registeredParticipants[1])
     }
 
     fun connectReferee() {
@@ -539,8 +709,13 @@ class HomeViewModel : ViewModel() {
     }
     
     // Match Setup
+    fun updateRegistrationFree(free: Boolean) {
+        isRegistrationFree = free
+    }
+
     fun updateRegistrationFee(enabled: Boolean) {
         isRegistrationFeeEnabled = enabled
+        isRegistrationFree = !enabled
         saveMatchPrefs()
     }
 

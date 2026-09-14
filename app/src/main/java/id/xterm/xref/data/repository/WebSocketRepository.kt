@@ -5,6 +5,7 @@ import id.xterm.xref.core.websocket.*
 import id.xterm.xref.data.remote.AuthService
 import id.xterm.xref.data.storage.AuthPreferences
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -90,6 +91,24 @@ class WebSocketRepository @Inject constructor() {
     val activeRooms = _activeRooms.asStateFlow()
 
     private val repositoryScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+
+    private data class OutgoingMessage(val connectionType: String, val rawMessage: String)
+    private val outgoingChannel = Channel<OutgoingMessage>(Channel.UNLIMITED)
+
+    init {
+        repositoryScope.launch {
+            for (msg in outgoingChannel) {
+                webSocketClients[msg.connectionType]?.send(msg.rawMessage)
+                delay(10)
+            }
+        }
+    }
+
+    private fun enqueueMessage(connectionType: String, rawMessage: String) {
+        repositoryScope.launch {
+            outgoingChannel.send(OutgoingMessage(connectionType, rawMessage))
+        }
+    }
 
     private fun nextId(connectionType: String): String {
         val counter = packetIds.getOrPut(connectionType) { AtomicInteger(0) }
@@ -378,7 +397,7 @@ class WebSocketRepository @Inject constructor() {
         val job = repositoryScope.launch {
             while (isActive) {
                 delay(60_000) // 60 seconds ping interval
-                webSocketClients[connectionType]?.send(json.encodeToString(PingRequest()))
+                enqueueMessage(connectionType, json.encodeToString(PingRequest()))
             }
         }
         pingJobs[connectionType] = job
@@ -391,18 +410,18 @@ class WebSocketRepository @Inject constructor() {
 
     fun joinRoom(room: String, connectionType: String) {
         val req = JoinRoomRequest(id = nextId(connectionType), room = room.lowercase())
-        webSocketClients[connectionType]?.send(json.encodeToString(req))
+        enqueueMessage(connectionType, json.encodeToString(req))
     }
 
     fun leaveRoom(room: String, connectionType: String) {
         val req = LeaveRoomRequest(id = nextId(connectionType), room = room.lowercase())
-        webSocketClients[connectionType]?.send(json.encodeToString(req))
+        enqueueMessage(connectionType, json.encodeToString(req))
     }
 
     fun sendMessage(room: String, message: String, connectionType: String) {
         message.chunked(255).forEach { chunk ->
             val req = SendMessageRequest(id = nextId(connectionType), room = room.lowercase(), body = chunk)
-            webSocketClients[connectionType]?.send(json.encodeToString(req))
+            enqueueMessage(connectionType, json.encodeToString(req))
         }
     }
 

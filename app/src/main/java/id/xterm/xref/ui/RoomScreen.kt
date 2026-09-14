@@ -7,36 +7,52 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import id.xterm.xref.core.match.MatchParticipant
+import id.xterm.xref.core.match.MatchSide
+import id.xterm.xref.core.match.MatchState
 import id.xterm.xref.ui.components.ChatView
 import id.xterm.xref.ui.components.XrefButton
+import id.xterm.xref.ui.components.XrefCard
 import id.xterm.xref.ui.components.XrefTextField
+import id.xterm.xref.ui.arena.ArenaViewModel
 import id.xterm.xref.ui.home.HomeViewModel
 import id.xterm.xref.ui.theme.DarkBackground
 import id.xterm.xref.ui.theme.DarkGreen800
 import id.xterm.xref.ui.theme.NeonGreen
 import id.xterm.xref.ui.theme.TextDim
+import kotlinx.coroutines.flow.MutableStateFlow
+import java.util.Locale
 
 @Composable
-fun RoomScreen(viewModel: HomeViewModel) {
-    val activeRooms by viewModel.activeRooms.collectAsState()
+fun RoomScreen(
+    homeViewModel: HomeViewModel,
+    arenaViewModel: ArenaViewModel
+) {
+    val activeRooms by homeViewModel.activeRooms.collectAsState()
     
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -46,11 +62,14 @@ fun RoomScreen(viewModel: HomeViewModel) {
             modifier = Modifier.fillMaxSize()
         ) {
             // Left Side: Room List
-            Box(modifier = Modifier.width(300.dp)) {
+            Box(modifier = Modifier.width(280.dp)) {
                 RoomList(
                     rooms = activeRooms.toList(),
-                    viewModel = viewModel,
-                    onRoomClick = { viewModel.selectedRoomInRoomsTab = it }
+                    viewModel = homeViewModel,
+                    onRoomClick = { 
+                        homeViewModel.selectedRoomInRoomsTab = it 
+                        arenaViewModel.selectedRoom = it
+                    }
                 )
             }
             
@@ -62,22 +81,26 @@ fun RoomScreen(viewModel: HomeViewModel) {
                     .background(NeonGreen.copy(alpha = 0.1f))
             )
 
-            // Right Side: Chat Detail
+            // Right Side: Chat Detail + Arena
             Box(modifier = Modifier.weight(1f)) {
-                val selectedRoom = viewModel.selectedRoomInRoomsTab
+                val selectedRoom = homeViewModel.selectedRoomInRoomsTab
                 if (selectedRoom != null) {
-                    val messages = viewModel.roomMessagesMap[selectedRoom] ?: emptyList()
+                    val messages = homeViewModel.roomMessagesMap[selectedRoom] ?: emptyList()
                     RoomChatDetail(
                         roomName = selectedRoom,
                         messages = messages,
-                        viewModel = viewModel,
-                        onBack = { viewModel.selectedRoomInRoomsTab = null },
+                        homeViewModel = homeViewModel,
+                        arenaViewModel = arenaViewModel,
+                        onBack = { 
+                            homeViewModel.selectedRoomInRoomsTab = null 
+                            arenaViewModel.selectedRoom = null
+                        },
                         showBackButton = false
                     )
                 } else {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            text = "SELECT A ROOM TO START CHATTING",
+                            text = "SELECT A ROOM TO START MONITORING",
                             color = TextDim,
                             fontSize = 12.sp,
                             fontFamily = FontFamily.Monospace
@@ -88,7 +111,7 @@ fun RoomScreen(viewModel: HomeViewModel) {
         }
     } else {
         AnimatedContent(
-            targetState = viewModel.selectedRoomInRoomsTab,
+            targetState = homeViewModel.selectedRoomInRoomsTab,
             transitionSpec = {
                 if (targetState != null) {
                     slideInHorizontally { it } + fadeIn() togetherWith slideOutHorizontally { -it } + fadeOut()
@@ -101,16 +124,23 @@ fun RoomScreen(viewModel: HomeViewModel) {
             if (room == null) {
                 RoomList(
                     rooms = activeRooms.toList(),
-                    viewModel = viewModel,
-                    onRoomClick = { viewModel.selectedRoomInRoomsTab = it }
+                    viewModel = homeViewModel,
+                    onRoomClick = { 
+                        homeViewModel.selectedRoomInRoomsTab = it 
+                        arenaViewModel.selectedRoom = it
+                    }
                 )
             } else {
-                val messages = viewModel.roomMessagesMap[room] ?: emptyList()
+                val messages = homeViewModel.roomMessagesMap[room] ?: emptyList()
                 RoomChatDetail(
                     roomName = room,
                     messages = messages,
-                    viewModel = viewModel,
-                    onBack = { viewModel.selectedRoomInRoomsTab = null },
+                    homeViewModel = homeViewModel,
+                    arenaViewModel = arenaViewModel,
+                    onBack = { 
+                        homeViewModel.selectedRoomInRoomsTab = null 
+                        arenaViewModel.selectedRoom = null
+                    },
                     showBackButton = true
                 )
             }
@@ -138,11 +168,11 @@ private fun RoomList(rooms: List<String>, viewModel: HomeViewModel, onRoomClick:
         if (rooms.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = "NO ACTIVE ROOMS\nJOIN A ROOM FROM DASHBOARD",
+                    text = "NO ACTIVE ROOMS\nJOIN A ROOM FROM HOME",
                     color = TextDim,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    textAlign = TextAlign.Center
                 )
             }
         } else {
@@ -213,19 +243,32 @@ private fun RoomItem(name: String, lastChat: String?, onClick: () -> Unit) {
 private fun RoomChatDetail(
     roomName: String,
     messages: List<id.xterm.xref.core.websocket.ChatMessage>,
-    viewModel: HomeViewModel,
+    homeViewModel: HomeViewModel,
+    arenaViewModel: ArenaViewModel,
     onBack: () -> Unit,
     showBackButton: Boolean = true
 ) {
+    val session = arenaViewModel.matchManager.getSession(roomName)
+    val matchState by (session?.state ?: MutableStateFlow(MatchState.Idle)).collectAsState()
+    val teamA by (session?.teamA ?: MutableStateFlow(MatchSide("Team A", emptyList()))).collectAsState()
+    val teamB by (session?.teamB ?: MutableStateFlow(MatchSide("Team B", emptyList()))).collectAsState()
+    
+    var isArenaExpanded by remember { mutableStateOf(false) }
+    var isTemplatesExpanded by remember { mutableStateOf(false) }
+
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
-            .padding(16.dp)
+            .padding(8.dp)
     ) {
+        // Header
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(bottom = 16.dp)
+            modifier = Modifier.padding(bottom = 8.dp)
         ) {
             if (showBackButton) {
                 IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
@@ -240,16 +283,113 @@ private fun RoomChatDetail(
             Text(
                 text = roomName.uppercase(),
                 color = NeonGreen,
-                fontSize = 18.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.weight(1f)
+            )
+            
+            // Arena Toggle
+            IconButton(onClick = { isArenaExpanded = !isArenaExpanded }) {
+                Icon(
+                    imageVector = if (isArenaExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = "Toggle Arena",
+                    tint = NeonGreen
+                )
+            }
+        }
+
+        // Arena Content (Timer and Teams)
+        if (isArenaExpanded || isLandscape) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    TimerSection(matchState)
+                }
+                if (isLandscape || isArenaExpanded) {
+                    TeamListColumn("TEAM A", teamA.participants, Modifier.weight(1f))
+                    TeamListColumn("TEAM B", teamB.participants, Modifier.weight(1f))
+                }
+            }
+        }
+
+        Row(modifier = Modifier.weight(1f)) {
+            ChatView(
+                messages = messages,
+                modifier = Modifier.weight(1f)
             )
         }
 
-        ChatView(
-            messages = messages,
-            modifier = Modifier.weight(1f)
-        )
+        // Referee Templates
+        XrefCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            title = "REFEREE TOOLS"
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isTemplatesExpanded = !isTemplatesExpanded }
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (isTemplatesExpanded) "HIDE TEMPLATES" else "SHOW REFEREE TEMPLATES",
+                        color = NeonGreen,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                
+                if (isTemplatesExpanded) {
+                    val scrollState = rememberScrollState()
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = 200.dp)
+                            .verticalScroll(scrollState)
+                    ) {
+                        val templates = listOf(
+                            "Match Call" to arenaViewModel.matchCallTemplate,
+                            "Bring IDs" to arenaViewModel.bringMultiIdsTemplate,
+                            "Ready Check" to arenaViewModel.readyCheckTemplate,
+                            "Kickoff" to arenaViewModel.kickoffWarningTemplate
+                        )
+                        templates.forEach { (label, value) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = label.uppercase(),
+                                    color = TextDim,
+                                    fontSize = 9.sp,
+                                    modifier = Modifier.width(70.dp),
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                XrefButton(
+                                    text = "SEND",
+                                    onClick = { arenaViewModel.sendTemplate(value) },
+                                    modifier = Modifier.weight(1f),
+                                    height = 32.dp,
+                                    contentPadding = PaddingValues(0.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -258,7 +398,7 @@ private fun RoomChatDetail(
         
         fun sendMessage() {
             if (inputText.isNotBlank()) {
-                viewModel.sendRoomMessage(roomName, inputText)
+                homeViewModel.sendRoomMessage(roomName, inputText)
                 inputText = ""
             }
         }
@@ -282,6 +422,68 @@ private fun RoomChatDetail(
                 modifier = Modifier.width(64.dp),
                 height = 42.dp,
                 contentPadding = PaddingValues(horizontal = 0.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun TimerSection(state: MatchState) {
+    val remaining = if (state is MatchState.Running) state.timeRemainingMillis else 0L
+    val seconds = remaining / 1000f
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, NeonGreen.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+            .padding(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = String.format(Locale.US, "%.1fs", seconds),
+            color = if (seconds < 1.0f && seconds > 0) Color.Red else NeonGreen,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.Center,
+            fontFamily = FontFamily.Monospace
+        )
+        Text(
+            text = when(state) {
+                is MatchState.Idle -> "READY"
+                is MatchState.Running -> "BATTLE"
+                is MatchState.Ended -> "ENDED"
+                is MatchState.Result -> "WIN: ${state.winner}"
+            },
+            color = NeonGreen,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace
+        )
+    }
+}
+
+@Composable
+fun TeamListColumn(title: String, participants: List<MatchParticipant>, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .border(1.dp, NeonGreen.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+            .padding(4.dp)
+    ) {
+        Text(
+            text = title,
+            color = NeonGreen,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(bottom = 2.dp)
+        )
+        participants.take(10).forEach { p ->
+            Text(
+                text = "${if (p.hasVoted) "●" else "○"} ${p.id.take(8)}",
+                color = if (p.hasVoted) NeonGreen else NeonGreen.copy(alpha = 0.4f),
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1
             )
         }
     }
