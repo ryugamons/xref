@@ -210,7 +210,9 @@ fun BracketScreen(
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.clickable {
-                                            onLoadToDashboard(listOf(match.teamA), listOf(match.teamB))
+                                            // Pass the bracket phase name (round title) as a third element or handle it inside a callback
+                                            // Let's reuse the onLoadToDashboard with a list or format string if possible
+                                            onLoadToDashboard(listOf(match.teamA, round.title), listOf(match.teamB))
                                         }
                                     )
                                 }

@@ -30,6 +30,9 @@ object AuthPreferences {
     private val KEY_BROADCAST_INTERVAL = stringPreferencesKey("broadcast_interval")
     private val KEY_TURNEY_TITLE = stringPreferencesKey("turney_title")
     private val KEY_MULTI_LOGIN_TEMPLATE = stringPreferencesKey("multi_login_template")
+    private val KEY_MATCH_CALL_TEMPLATE = stringPreferencesKey("match_call_template")
+    private val KEY_READY_CHECK_TEMPLATE = stringPreferencesKey("ready_check_template")
+    private val KEY_KICKOFF_WARNING_TEMPLATE = stringPreferencesKey("kickoff_warning_template")
 
     suspend fun saveRefereeAuth(id: String, password: String) {
         dataStore.edit { prefs ->
@@ -88,6 +91,18 @@ object AuthPreferences {
         dataStore.edit { prefs -> prefs[KEY_MULTI_LOGIN_TEMPLATE] = template }
     }
 
+    suspend fun saveMatchCallTemplate(template: String) {
+        dataStore.edit { prefs -> prefs[KEY_MATCH_CALL_TEMPLATE] = template }
+    }
+
+    suspend fun saveReadyCheckTemplate(template: String) {
+        dataStore.edit { prefs -> prefs[KEY_READY_CHECK_TEMPLATE] = template }
+    }
+
+    suspend fun saveKickoffWarningTemplate(template: String) {
+        dataStore.edit { prefs -> prefs[KEY_KICKOFF_WARNING_TEMPLATE] = template }
+    }
+
     suspend fun getRefereeId(): String = dataStore.data.map { it[KEY_REFEREE_ID] ?: "" }.first()
     suspend fun getRefereePassword(): String = dataStore.data.map { it[KEY_REFEREE_PASSWORD] ?: "" }.first()
     suspend fun getStarterId(): String = dataStore.data.map { it[KEY_STARTER_ID] ?: "" }.first()
@@ -113,4 +128,7 @@ object AuthPreferences {
     suspend fun getBroadcastInterval(): Int = dataStore.data.map { it[KEY_BROADCAST_INTERVAL]?.toIntOrNull() ?: 60 }.first()
     suspend fun getTurneyTitle(): String = dataStore.data.map { it[KEY_TURNEY_TITLE] ?: "XREF" }.first()
     suspend fun getMultiLoginTemplate(): String = dataStore.data.map { it[KEY_MULTI_LOGIN_TEMPLATE] ?: "BRING YOUR 10 MULTI-IDS INTO ROOM {room} NOW!" }.first()
+    suspend fun getMatchCallTemplate(): String = dataStore.data.map { it[KEY_MATCH_CALL_TEMPLATE] ?: "[BROADCAST] Match starting: {teamA} vs {teamB}. Enter room: {room}" }.first()
+    suspend fun getReadyCheckTemplate(): String = dataStore.data.map { it[KEY_READY_CHECK_TEMPLATE] ?: "[REFEREE] Are you ready? Reply 'rd' to confirm!" }.first()
+    suspend fun getKickoffWarningTemplate(): String = dataStore.data.map { it[KEY_KICKOFF_WARNING_TEMPLATE] ?: "[REFEREE] KICKOFF STARTED! Do not vote/kick for 60 seconds!" }.first()
 }

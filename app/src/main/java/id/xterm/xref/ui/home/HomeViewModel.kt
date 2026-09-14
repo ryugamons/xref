@@ -9,11 +9,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import id.xterm.xref.core.match.MatchManager
 import id.xterm.xref.core.websocket.ChatMessage
-import id.xterm.xref.core.websocket.MessageType
 import id.xterm.xref.data.repository.ConnectionState
 import id.xterm.xref.data.repository.WebSocketRepository
 import id.xterm.xref.data.storage.AuthPreferences
+import kotlinx.serialization.json.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -27,6 +28,7 @@ enum class MatchPhase {
 
 class HomeViewModel : ViewModel() {
     private val webSocketRepository = WebSocketRepository.getInstance()
+    val matchManager = MatchManager.getInstance(webSocketRepository)
 
     var refereeId by mutableStateOf("")
     var refereePassword by mutableStateOf("")
@@ -48,6 +50,8 @@ class HomeViewModel : ViewModel() {
     var broadcastIntervalSeconds by mutableStateOf(60)
     var turneyTitle by mutableStateOf("XREF")
     var multiLoginTemplate by mutableStateOf("BRING YOUR 10 MULTI-IDS INTO ROOM {room} NOW!")
+    var matchCallTemplate by mutableStateOf("[BROADCAST] Match starting: {teamA} vs {teamB}. Enter room: {room}")
+    var readyCheckTemplate by mutableStateOf("[REFEREE] Are you ready? Reply 'rd' to confirm!")
 
     // Match Active State
     var matchPhase by mutableStateOf(MatchPhase.IDLE)
@@ -55,6 +59,9 @@ class HomeViewModel : ViewModel() {
     val participantRolls = mutableStateMapOf<String, String>()
     val participantsWhoMustReRoll = mutableStateListOf<String>()
     
+    // Track scheduled matches (room -> teamA players, teamB players)
+    val scheduledMatches = mutableStateMapOf<String, Pair<List<String>, List<String>>>()
+
     val duplicateRolls by derivedStateOf {
         participantRolls.values
             .filter { it.toIntOrNull() != null }
@@ -110,6 +117,8 @@ class HomeViewModel : ViewModel() {
             broadcastIntervalSeconds = AuthPreferences.getBroadcastInterval()
             turneyTitle = AuthPreferences.getTurneyTitle()
             multiLoginTemplate = AuthPreferences.getMultiLoginTemplate()
+            matchCallTemplate = AuthPreferences.getMatchCallTemplate()
+            readyCheckTemplate = AuthPreferences.getReadyCheckTemplate()
         }
 
         // Listen to Referee connection states
@@ -123,9 +132,6 @@ class HomeViewModel : ViewModel() {
                     is ConnectionState.Connecting -> refereeStatusText = "connecting"
                     is ConnectionState.Disconnected, ConnectionState.Idle -> {
                         refereeStatusText = "offline"
-                        if (matchPhase != MatchPhase.IDLE && matchPhase != MatchPhase.FINISHED) {
-                           // Stay in current phase even if disconnected temporarily
-                        }
                     }
                     is ConnectionState.Error -> {
                         refereeStatusText = if (state.message.contains("Broken pipe", ignoreCase = true) || 
@@ -290,11 +296,9 @@ class HomeViewModel : ViewModel() {
     fun toggleMatchRegistration() {
         if (matchPhase == MatchPhase.IDLE || matchPhase == MatchPhase.FINISHED) {
             if (!isRefereeConnected) return
-            // Start fresh registration or continue with existing participants
             matchPhase = MatchPhase.REGISTRATION
             startBroadcastingStatus()
         } else {
-            // STOP/ABORT - We keep the participants and rolls!
             stopBroadcasting()
             matchPhase = MatchPhase.IDLE
         }
@@ -325,16 +329,12 @@ class HomeViewModel : ViewModel() {
                             val feeMilliCr = registrationFeeNominal.toLongOrNull()?.let { it * 1000 } ?: 0L
                             if (feeMilliCr > 0) {
                                 participantsToRefund.forEach { participant ->
-                                    // Send broadcast notification/command (respects 10ms queue)
                                     webSocketRepository.sendMessage(
                                         normalizedBroadcastRoom,
                                         "/me [SYSTEM] Refunding ${feeMilliCr / 1000}CR to ${participant.uppercase()}...",
                                         "REFEREE"
                                     )
-                                    // Actual refund via API
                                     webSocketRepository.sendTransfer(participant, feeMilliCr, walletPin, "REFEREE")
-                                    
-                                    // Explicit throttling as requested
                                     delay(10)
                                 }
                             }
@@ -352,6 +352,7 @@ class HomeViewModel : ViewModel() {
         registeredParticipants.clear()
         participantRolls.clear()
         participantsWhoMustReRoll.clear()
+        scheduledMatches.clear()
         matchPhase = MatchPhase.IDLE
     }
     
@@ -368,9 +369,7 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    private fun checkRegistrationFull() {
-        // Manual transition via "START ROLL" button
-    }
+    private fun checkRegistrationFull() { }
 
     fun startRollPhaseManually() {
         if (matchPhase == MatchPhase.REGISTRATION) {
@@ -497,54 +496,63 @@ class HomeViewModel : ViewModel() {
                 }
             }
             val seedingText = pairs.joinToString(" | ")
-                val message = "/me [$turneyTitle] ROLLING COMPLETED. BRACKET GENERATED: $seedingText"
+            val message = "/me [$turneyTitle] ROLLING COMPLETED. BRACKET GENERATED: $seedingText"
             webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
         }
     }
     
-    fun callMatchSummon(teamA: String, teamB: String): String {
+    fun callMatchSummon(teamA: String, teamB: String, phase: String = "MATCH"): String {
         matchPhase = MatchPhase.IN_PROGRESS
         val normalizedBroadcastRoom = broadcastRoom.lowercase()
         
-        // Find a room to use: first joined battle room, OR first battle room, OR "arena"
+        val matchesInProgress = matchManager.activeSessions.value.map { it.lowercase() }
+
         val roomToUse = battleRooms.firstOrNull { 
-            it.isNotEmpty() && activeRooms.value.contains(it.lowercase()) && it.lowercase() != normalizedBroadcastRoom 
+            it.isNotEmpty() && 
+            it.lowercase() != normalizedBroadcastRoom &&
+            !matchesInProgress.contains(it.lowercase())
         } ?: battleRooms.firstOrNull { it.isNotEmpty() } ?: "arena"
 
+        // Schedule players for this room
+        scheduledMatches[roomToUse.lowercase()] = Pair(listOf(teamA), listOf(teamB))
+
         if (isRefereeConnected) {
-            // Join the room if not already joined
             if (!activeRooms.value.contains(roomToUse.lowercase())) {
                 webSocketRepository.joinRoom(roomToUse, "REFEREE")
             }
             
-            // Send summon message if in broadcast room
             if (broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
-                val message = "/me [$turneyTitle] SUMMON MATCH: ${teamA.uppercase()} vs ${teamB.uppercase()}. ALL PLAYERS ENTER ROOM ${roomToUse.uppercase()} NOW!"
+                val message = "/me [$turneyTitle] [$phase] SUMMON: ${teamA.uppercase()} vs ${teamB.uppercase()}. ENTER ROOM ${roomToUse.uppercase()} NOW!"
                 webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
                 
-                // Start a 3-minute countdown broadcast job into that room
                 viewModelScope.launch {
                     var remainingSeconds = 180
                     val normalizedRoomToUse = roomToUse.lowercase()
                     
-                    // Track entered participants of teamA and teamB
-                    val teamAUser = teamA.firstOrNull()?.lowercase() ?: ""
-                    val teamBUser = teamB.firstOrNull()?.lowercase() ?: ""
+                    val teamAUser = teamA.lowercase()
+                    val teamBUser = teamB.lowercase()
                     
                     var isTeamAEntered = false
                     var isTeamBEntered = false
 
-                    // Create a collector to listen to room presence events via webSocketRepository.events
                     val presenceCollectorJob = launch {
                         webSocketRepository.events.collect { json ->
                             val type = json["type"]?.jsonPrimitive?.content ?: ""
-                            if (type == "room.participant.added") {
-                                val currentRoom = json["room"]?.jsonPrimitive?.content?.lowercase() ?: ""
-                                val enteringUser = json["username"]?.jsonPrimitive?.content?.lowercase() ?: ""
-                                
-                                if (currentRoom == normalizedRoomToUse) {
+                            val currentRoom = json["room"]?.jsonPrimitive?.content?.lowercase() ?: ""
+                            
+                            if (currentRoom == normalizedRoomToUse) {
+                                if (type == "room.participant.added") {
+                                    val enteringUser = json["username"]?.jsonPrimitive?.content?.lowercase() ?: ""
                                     if (enteringUser == teamAUser) isTeamAEntered = true
                                     if (enteringUser == teamBUser) isTeamBEntered = true
+                                } else if (type == "room.joined") {
+                                    // Check initial participants list in the room
+                                    val participants = json["participants"]?.jsonArray
+                                    participants?.forEach { p ->
+                                        val u = p.jsonObject["username"]?.jsonPrimitive?.content?.lowercase() ?: ""
+                                        if (u == teamAUser) isTeamAEntered = true
+                                        if (u == teamBUser) isTeamBEntered = true
+                                    }
                                 }
                             }
                         }
@@ -553,29 +561,34 @@ class HomeViewModel : ViewModel() {
                     try {
                         while (remainingSeconds > 0) {
                             if (isTeamAEntered && isTeamBEntered) {
-                                val successMessage = "/me [$turneyTitle] BOTH TEAMS ($teamAUser & $teamBUser) HAVE ENTERED ROOM ${roomToUse.uppercase()}! COUNTDOWN CANCELLED."
-                                webSocketRepository.sendMessage(normalizedBroadcastRoom, successMessage, "REFEREE")
-                                
-                                // Send multi login command template after substitution
-                                val formattedMultiMsg = multiLoginTemplate.replace("{room}", roomToUse.uppercase())
-                                val multiBroadcastMessage = "/me [$turneyTitle] $formattedMultiMsg"
-                                webSocketRepository.sendMessage(normalizedBroadcastRoom, multiBroadcastMessage, "REFEREE")
                                 break
                             }
 
                             val min = remainingSeconds / 60
                             val sec = remainingSeconds % 60
-                            val timeStr = if (sec == 0) "$min MINUTES" else "$min MIN $sec SEC"
-                            val countdownMessage = "/me [$turneyTitle] MATCH TIME LIMIT COUNTDOWN: $timeStr REMAINING TO ENTER ROOM ${roomToUse.uppercase()}!"
+                            val timeStr = if (sec == 0) "$min MINUTES" else "$sec SECONDS"
+                            val countdownMessage = "/me [$turneyTitle] [$phase] ${teamA.uppercase()} VS ${teamB.uppercase()} ($timeStr remaining) - ENTER [${roomToUse.uppercase()}] NOW!"
                             webSocketRepository.sendMessage(normalizedBroadcastRoom, countdownMessage, "REFEREE")
                             
-                            delay(30000L) // interval 30s
-                            remainingSeconds -= 30
+                            val interval = if (remainingSeconds > 60) 60 else 30
+                            delay(interval * 1000L) 
+                            remainingSeconds -= interval
                         }
                         
                         if (!(isTeamAEntered && isTeamBEntered)) {
-                            val timeUpMessage = "/me [$turneyTitle] TIME IS UP! PREPARING FOR AUTOMATED FORFEIT/START CHECKS IN ROOM ${roomToUse.uppercase()}."
-                            webSocketRepository.sendMessage(normalizedBroadcastRoom, timeUpMessage, "REFEREE")
+                            // DQ Logic
+                            val dqMessage = when {
+                                !isTeamAEntered && isTeamBEntered -> {
+                                    "/me [$turneyTitle] [$phase] RESULT [10-0]: ${teamB.uppercase()} WINS vs ${teamA.uppercase()} DIS."
+                                }
+                                isTeamAEntered && !isTeamBEntered -> {
+                                    "/me [$turneyTitle] [$phase] RESULT [10-0]: ${teamA.uppercase()} WINS vs ${teamB.uppercase()} DIS."
+                                }
+                                else -> {
+                                    "/me [$turneyTitle] [$phase] RESULT [DIS]: BOTH TEAMS ${teamA.uppercase()} & ${teamB.uppercase()} FAILED TO ENTER."
+                                }
+                            }
+                            webSocketRepository.sendMessage(normalizedBroadcastRoom, dqMessage, "REFEREE")
                         }
                     } finally {
                         presenceCollectorJob.cancel()
@@ -585,6 +598,42 @@ class HomeViewModel : ViewModel() {
         }
         
         return roomToUse
+    }
+
+    fun kickoff(room: String) {
+        val normalizedRoom = room.lowercase()
+        viewModelScope.launch {
+            if (isStarterConnected) {
+                // Command starter to enter room and do self kick
+                webSocketRepository.joinRoom(normalizedRoom, "STARTER")
+                delay(500)
+                webSocketRepository.sendMessage(normalizedRoom, "/kick $starterId", "STARTER")
+                
+                // ACTIVATION START: Create battle session only after kickoff triggered
+                scheduledMatches[normalizedRoom]?.let { (teamA, teamB) ->
+                    matchManager.startMatch(normalizedRoom, teamA, teamB)
+                }
+            }
+        }
+    }
+
+    fun starterLeave(room: String) {
+        val normalizedRoom = room.lowercase()
+        webSocketRepository.leaveRoom(normalizedRoom, "STARTER")
+    }
+
+    fun sendTemplate(room: String, templateText: String) {
+        val normalizedRoom = room.lowercase()
+        val players = scheduledMatches[normalizedRoom] ?: Pair(emptyList(), emptyList())
+        val teamAName = players.first.firstOrNull() ?: "Team A"
+        val teamBName = players.second.firstOrNull() ?: "Team B"
+        
+        val processedMessage = templateText
+            .replace("{room}", room.uppercase())
+            .replace("{teamA}", teamAName)
+            .replace("{teamB}", teamBName)
+            
+        webSocketRepository.sendMessage(room, processedMessage, "REFEREE")
     }
 
     fun processTransfer(sender: String, amountMilliCr: Long) {
@@ -765,10 +814,6 @@ class HomeViewModel : ViewModel() {
     }
     
     // Match Setup
-    fun updateRegistrationFree(free: Boolean) {
-        isRegistrationFree = free
-    }
-
     fun updateRegistrationFee(enabled: Boolean) {
         isRegistrationFeeEnabled = enabled
         isRegistrationFree = !enabled
@@ -801,7 +846,6 @@ class HomeViewModel : ViewModel() {
         broadcastIntervalSeconds = seconds
         viewModelScope.launch { AuthPreferences.saveBroadcastInterval(seconds) }
         
-        // Re-start broadcasting to apply the new interval immediately
         if (matchPhase != MatchPhase.IDLE) {
             startBroadcastingStatus()
         }
@@ -815,5 +859,15 @@ class HomeViewModel : ViewModel() {
     fun updateMultiLoginTemplate(template: String) {
         multiLoginTemplate = template
         viewModelScope.launch { AuthPreferences.saveMultiLoginTemplate(template) }
+    }
+
+    fun saveTemplates(matchCall: String, readyCheck: String) {
+        matchCallTemplate = matchCall
+        readyCheckTemplate = readyCheck
+        
+        viewModelScope.launch {
+            AuthPreferences.saveMatchCallTemplate(matchCall)
+            AuthPreferences.saveReadyCheckTemplate(readyCheck)
+        }
     }
 }

@@ -251,15 +251,17 @@ class WebSocketRepository @Inject constructor() {
                             val isAction = kind == "action" || (body.startsWith("**") && body.endsWith("**"))
                             val msgType = if (isAction) MessageType.ACTION else MessageType.TEXT
                             
-                            repositoryScope.launch {
-                                _roomMessages.emit(roomName.lowercase() to ChatMessage(
-                                    room = roomName.uppercase(),
-                                    username = username,
-                                    text = body,
-                                    time = time,
-                                    type = msgType,
-                                    eventType = type
-                                ))
+                            if (connectionType == "REFEREE") {
+                                repositoryScope.launch {
+                                    _roomMessages.emit(roomName.lowercase() to ChatMessage(
+                                        room = roomName.uppercase(),
+                                        username = username,
+                                        text = body,
+                                        time = time,
+                                        type = msgType,
+                                        eventType = type
+                                    ))
+                                }
                             }
                         }
                         "room.joined" -> {
@@ -275,7 +277,7 @@ class WebSocketRepository @Inject constructor() {
                                 }
                                 
                                 // SNAPSHOT: Only show if I am the one joining
-                                if (usernameInPacket == sessionUsernames[connectionType]) {
+                                if (usernameInPacket == sessionUsernames[connectionType] && connectionType == "REFEREE") {
                                     val description = jsonObject.get("room_description")?.jsonPrimitive?.contentOrNull ?: ""
                                     val owner = jsonObject.get("room_owner_username")?.jsonPrimitive?.contentOrNull ?: ""
                                     val announcement = jsonObject.get("room_announcement")?.jsonPrimitive?.contentOrNull ?: ""
@@ -321,7 +323,7 @@ class WebSocketRepository @Inject constructor() {
                             val username = jsonObject.get("username")?.jsonPrimitive?.contentOrNull ?: ""
                             val time = jsonObject.get("time")?.jsonPrimitive?.contentOrNull ?: ""
                             
-                            if (username.isNotEmpty() && username != sessionUsernames[connectionType]) {
+                            if (username.isNotEmpty() && username != sessionUsernames[connectionType] && connectionType == "REFEREE") {
                                 repositoryScope.launch {
                                     _roomMessages.emit(roomName.lowercase() to ChatMessage(
                                         room = roomName.uppercase(),
@@ -339,7 +341,7 @@ class WebSocketRepository @Inject constructor() {
                             val username = jsonObject.get("username")?.jsonPrimitive?.contentOrNull ?: ""
                             val time = jsonObject.get("time")?.jsonPrimitive?.contentOrNull ?: ""
                             
-                            if (username.isNotEmpty() && username != sessionUsernames[connectionType]) {
+                            if (username.isNotEmpty() && username != sessionUsernames[connectionType] && connectionType == "REFEREE") {
                                 repositoryScope.launch {
                                     _roomMessages.emit(roomName.lowercase() to ChatMessage(
                                         room = roomName.uppercase(),

@@ -5,13 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.MeetingRoom
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Settings
@@ -30,7 +27,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import id.xterm.xref.data.repository.ConnectionState
 import id.xterm.xref.ui.components.XrefButton
 import id.xterm.xref.ui.components.XrefCard
 import id.xterm.xref.ui.components.XrefTextField
@@ -49,7 +45,6 @@ private enum class HomeSection {
 @Composable
 fun DashboardScreen(
     viewModel: HomeViewModel = viewModel(),
-    arenaViewModel: id.xterm.xref.ui.arena.ArenaViewModel = viewModel(),
     onNavigateToRooms: () -> Unit = {},
     onLoadToDashboard: (teamA: List<String>, teamB: List<String>) -> Unit = { _, _ -> }
 ) {
@@ -115,7 +110,6 @@ fun DashboardScreen(
                 ContentArea(
                     activeSection = activeSection,
                     viewModel = viewModel,
-                    arenaViewModel = arenaViewModel,
                     onNavigateToRooms = onNavigateToRooms,
                     onLoadToDashboard = onLoadToDashboard
                 )
@@ -173,7 +167,6 @@ fun DashboardScreen(
                 ContentArea(
                     activeSection = activeSection,
                     viewModel = viewModel,
-                    arenaViewModel = arenaViewModel,
                     onNavigateToRooms = onNavigateToRooms,
                     onLoadToDashboard = onLoadToDashboard
                 )
@@ -186,7 +179,6 @@ fun DashboardScreen(
 private fun ContentArea(
     activeSection: HomeSection,
     viewModel: HomeViewModel,
-    arenaViewModel: id.xterm.xref.ui.arena.ArenaViewModel,
     onNavigateToRooms: () -> Unit,
     onLoadToDashboard: (List<String>, List<String>) -> Unit
 ) {
@@ -219,7 +211,7 @@ private fun ContentArea(
         enter = fadeIn() + expandVertically(),
         exit = fadeOut() + shrinkVertically()
     ) {
-        SettingsSection(viewModel, arenaViewModel)
+        SettingsSection(viewModel)
     }
 }
 
@@ -832,10 +824,20 @@ private fun SettingsSection(viewModel: HomeViewModel) {
     var localTemplateText by remember(viewModel.multiLoginTemplate) {
         mutableStateOf(viewModel.multiLoginTemplate)
     }
+    var localMatchCall by remember(viewModel.matchCallTemplate) {
+        mutableStateOf(viewModel.matchCallTemplate)
+    }
+    var localReadyCheck by remember(viewModel.readyCheckTemplate) {
+        mutableStateOf(viewModel.readyCheckTemplate)
+    }
 
-    XrefCard(title = "SYSTEM SETTINGS") {
+    val scrollState = rememberScrollState()
+
+    XrefCard(title = "SYSTEM SETTINGS", modifier = Modifier.fillMaxHeight()) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             XrefTextField(
@@ -845,9 +847,21 @@ private fun SettingsSection(viewModel: HomeViewModel) {
             )
 
             XrefTextField(
+                value = localMatchCall,
+                onValueChange = { localMatchCall = it },
+                label = "MATCH CALL TEMPLATE"
+            )
+
+            XrefTextField(
                 value = localTemplateText,
                 onValueChange = { localTemplateText = it },
-                label = "MULTI LOGIN TEMPLATE COMMAND"
+                label = "BRING MULTI-IDS TEMPLATE"
+            )
+
+            XrefTextField(
+                value = localReadyCheck,
+                onValueChange = { localReadyCheck = it },
+                label = "READY CHECK TEMPLATE"
             )
 
             XrefTextField(
@@ -874,6 +888,10 @@ private fun SettingsSection(viewModel: HomeViewModel) {
                     viewModel.updateBroadcastInterval(newValue)
                     viewModel.updateTurneyTitle(localTitleText.ifBlank { "XREF" })
                     viewModel.updateMultiLoginTemplate(localTemplateText.ifBlank { "BRING YOUR 10 MULTI-IDS INTO ROOM {room} NOW!" })
+                    viewModel.saveTemplates(
+                        matchCall = localMatchCall.ifBlank { "[BROADCAST] Match starting: {teamA} vs {teamB}. Enter room: {room}" },
+                        readyCheck = localReadyCheck.ifBlank { "[REFEREE] Are you ready? Reply 'rd' to confirm!" }
+                    )
                 },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = localIntervalText.isNotEmpty()

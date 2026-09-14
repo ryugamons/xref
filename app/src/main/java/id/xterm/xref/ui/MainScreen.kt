@@ -14,9 +14,7 @@ import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.Assessment
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.Sports
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -26,7 +24,6 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,9 +43,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
-import id.xterm.xref.core.match.MatchManager
-import id.xterm.xref.data.repository.WebSocketRepository
-import id.xterm.xref.ui.arena.ArenaViewModel
 import id.xterm.xref.ui.home.DashboardScreen
 import id.xterm.xref.ui.home.HomeViewModel
 import id.xterm.xref.ui.navigation.Destination
@@ -58,10 +52,9 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
-    arenaViewModel: ArenaViewModel = viewModel(),
     homeViewModel: HomeViewModel = viewModel()
 ) {
-    val matchManager = arenaViewModel.matchManager
+    val matchManager = homeViewModel.matchManager
     var showInfoDialog by remember { mutableStateOf(false) }
 
     val pagerState = rememberPagerState(initialPage = BottomTab.entries.indexOf(BottomTab.Home)) {
@@ -83,8 +76,8 @@ fun MainScreen(
                 Text(
                     text = "App Name: XREF\n" +
                             "Version: 1.0.0\n" +
-                            "Creator: hex\n\n" +
-                            "Description: A professional broadcasting and starter tool for mig33 kick tournaments. Features include real-time match monitoring, tournament brackets, and automated 10vs10 match logic with 3s timeout enforcement.",
+                            "Creator: HEX\n\n" +
+                            "Description: A professional broadcasting and starter tool for mig33 kick tournaments. Features include real-time match monitoring, tournament brackets, and automated 10vs10 match logic.",
                     color = NeonGreen
                 )
             },
@@ -110,7 +103,6 @@ fun MainScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
             ) {
-                // Left spacing dummy
                 androidx.compose.foundation.layout.Spacer(modifier = Modifier.size(24.dp))
                 
                 Text(
@@ -175,8 +167,7 @@ fun MainScreen(
                         },
                         onLoadToDashboard = { teamA, teamB ->
                             if (teamA.isNotEmpty() && teamB.isNotEmpty()) {
-                                val room = homeViewModel.callMatchSummon(teamA[0], teamB[0])
-                                arenaViewModel.startMatch(room, teamA, teamB)
+                                homeViewModel.callMatchSummon(teamA[0], teamB[0])
                                 coroutineScope.launch {
                                     pagerState.animateScrollToPage(BottomTab.entries.indexOf(BottomTab.Room))
                                 }
@@ -187,14 +178,8 @@ fun MainScreen(
                         homeViewModel = homeViewModel,
                         onLoadToDashboard = { teamA, teamB ->
                             if (teamA.isNotEmpty() && teamB.isNotEmpty()) {
-                                // 1. Summon the match in an available battle room
-                                val room = homeViewModel.callMatchSummon(teamA[0], teamB[0])
-                                
-                                // 2. Start the automated match logic in that specific room via DashboardViewModel
-                                // to ensure the selected room is updated and match is registered
-                                arenaViewModel.startMatch(room, teamA, teamB)
-                                
-                                // 3. Switch view to Room tab (which now serves as Arena)
+                                val bracketPhase = teamA.getOrNull(1) ?: "MATCH"
+                                homeViewModel.callMatchSummon(teamA[0], teamB[0], bracketPhase)
                                 coroutineScope.launch {
                                     pagerState.animateScrollToPage(BottomTab.entries.indexOf(BottomTab.Room))
                                 }
@@ -202,17 +187,10 @@ fun MainScreen(
                         }
                     )
                     BottomTab.Statistics -> StatisticsScreen(matchManager)
-                    BottomTab.Room -> RoomScreen(homeViewModel, arenaViewModel)
+                    BottomTab.Room -> RoomScreen(homeViewModel)
                 }
             }
         }
-    }
-}
-
-@Composable
-fun ScreenPlaceholder(title: String) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text = title)
     }
 }
 

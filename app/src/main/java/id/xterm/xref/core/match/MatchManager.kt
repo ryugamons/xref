@@ -10,7 +10,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 sealed class MatchState {
     data object Idle : MatchState()
-    data class Running(val timeRemainingMillis: Long) : MatchState()
+    data object Running : MatchState()
     data object Ended : MatchState()
     data class Result(val winner: String) : MatchState()
 }
@@ -25,7 +25,7 @@ data class MatchSide(
     val participants: List<MatchParticipant>
 )
 
-class MatchSession(val room: String, private val scope: CoroutineScope) {
+class MatchSession(val room: String) {
     private val _state = MutableStateFlow<MatchState>(MatchState.Idle)
     val state = _state.asStateFlow()
 
@@ -41,17 +41,15 @@ class MatchSession(val room: String, private val scope: CoroutineScope) {
     private val _kickCountMap = MutableStateFlow<Map<String, Int>>(emptyMap())
     val kickCountMap = _kickCountMap.asStateFlow()
 
-    private var timerJob: Job? = null
     private var lastKickTime = 0L
 
     fun start(teamAIds: List<String>, teamBIds: List<String>) {
         _teamA.value = MatchSide("Team A", teamAIds.map { MatchParticipant(it) })
         _teamB.value = MatchSide("Team B", teamBIds.map { MatchParticipant(it) })
         _logs.value = listOf("Match Started in $room: ${teamAIds.size}vs${teamBIds.size}")
-        _state.value = MatchState.Running(3000L)
+        _state.value = MatchState.Running
         _kickCountMap.value = emptyMap()
         lastKickTime = System.currentTimeMillis()
-        resetTimer()
     }
 
     fun handleKick(from: String, body: String) {
@@ -72,7 +70,6 @@ class MatchSession(val room: String, private val scope: CoroutineScope) {
         _logs.value = (listOf(logEntry) + _logs.value).take(100)
 
         updateVoteStatus(from)
-        resetTimer()
         checkEndConditions()
     }
 
@@ -99,33 +96,12 @@ class MatchSession(val room: String, private val scope: CoroutineScope) {
         }
     }
 
-    private fun resetTimer() {
-        timerJob?.cancel()
-        timerJob = scope.launch {
-            val startTime = System.currentTimeMillis()
-            val duration = 3000L
-            while (isActive) {
-                val elapsed = System.currentTimeMillis() - startTime
-                val remaining = duration - elapsed
-                if (remaining <= 0) {
-                    _state.value = MatchState.Running(0)
-                    endMatch("Timeout: Target not kicked")
-                    break
-                }
-                _state.value = MatchState.Running(remaining)
-                delay(16)
-            }
-        }
-    }
-
     private fun endMatch(reason: String) {
-        timerJob?.cancel()
         _state.value = MatchState.Ended
         _logs.value = (listOf("Match Ended: $reason") + _logs.value).take(50)
     }
 
     fun stop() {
-        timerJob?.cancel()
         _state.value = MatchState.Idle
     }
 }
@@ -160,6 +136,18 @@ class MatchManager @Inject constructor(
                     if (body.contains("kicked", ignoreCase = true)) {
                          sessions[room]?.handleKick(from, body)
                     }
+                } else if (type == "room.participant.removed") {
+                    val room = jsonObject["room"]?.jsonPrimitive?.content?.lowercase() ?: ""
+                    val username = jsonObject["username"]?.jsonPrimitive?.content?.lowercase() ?: ""
+                    
+                    sessions[room]?.let { session ->
+                        val isParticipant = session.teamA.value.participants.any { it.id.lowercase() == username } ||
+                                           session.teamB.value.participants.any { it.id.lowercase() == username }
+                        
+                        if (isParticipant) {
+                            stopMatch(room)
+                        }
+                    }
                 }
             }
         }
@@ -168,7 +156,7 @@ class MatchManager @Inject constructor(
     fun startMatch(room: String, teamAIds: List<String>, teamBIds: List<String>) {
         val normalizedRoom = room.lowercase()
         val session = sessions.getOrPut(normalizedRoom) { 
-            MatchSession(normalizedRoom, scope) 
+            MatchSession(normalizedRoom) 
         }
         session.start(teamAIds, teamBIds)
         updateActiveSessions()
