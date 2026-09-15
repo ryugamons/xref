@@ -25,7 +25,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -283,6 +285,38 @@ private fun RefereeSection(viewModel: HomeViewModel) {
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        // Card: PRIZE TRANSFER
+        XrefCard(title = "PRIZE TRANSFER") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                XrefTextField(
+                    value = viewModel.transferTargetId,
+                    onValueChange = { viewModel.transferTargetId = it },
+                    label = "Winner ID",
+                    modifier = Modifier.weight(1f)
+                )
+                XrefTextField(
+                    value = viewModel.transferAmountCr,
+                    onValueChange = { viewModel.transferAmountCr = it },
+                    label = "Amount",
+                    modifier = Modifier.width(80.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                XrefButton(
+                    text = "SEND",
+                    onClick = { viewModel.sendPrizeTransfer() },
+                    modifier = Modifier.width(60.dp),
+                    height = 42.dp,
+                    fontSize = 11.sp,
+                    contentPadding = PaddingValues(0.dp),
+                    enabled = viewModel.isRefereeConnected && viewModel.transferTargetId.isNotBlank() && viewModel.transferAmountCr.isNotBlank()
+                )
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -853,9 +887,6 @@ private fun SettingsSection(viewModel: HomeViewModel) {
     var localTemplateText by remember(viewModel.multiLoginTemplate) {
         mutableStateOf(viewModel.multiLoginTemplate)
     }
-    var localMatchCall by remember(viewModel.matchCallTemplate) {
-        mutableStateOf(viewModel.matchCallTemplate)
-    }
     var localReadyCheck by remember(viewModel.readyCheckTemplate) {
         mutableStateOf(viewModel.readyCheckTemplate)
     }
@@ -873,12 +904,6 @@ private fun SettingsSection(viewModel: HomeViewModel) {
                 value = localTitleText,
                 onValueChange = { localTitleText = it },
                 label = "TURNEY TITLE (BROADCAST HEADER)"
-            )
-
-            XrefTextField(
-                value = localMatchCall,
-                onValueChange = { localMatchCall = it },
-                label = "MATCH CALL TEMPLATE"
             )
 
             XrefTextField(
@@ -909,6 +934,35 @@ private fun SettingsSection(viewModel: HomeViewModel) {
                 },
                 label = "BROADCAST INTERVAL (SECONDS)"
             )
+
+            // Auto Leave Starter Checkbox
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(DarkGreen900)
+                    .border(1.dp, DarkGreen700, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = viewModel.isAutoLeaveStarterEnabled,
+                    onCheckedChange = { viewModel.updateAutoLeaveStarter(it) },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = NeonGreen,
+                        uncheckedColor = TextDim,
+                        checkmarkColor = DarkBackground
+                    )
+                )
+                Text(
+                    text = "AUTO LEAVE STARTER",
+                    color = if (viewModel.isAutoLeaveStarterEnabled) NeonGreen else TextDim,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f)
+                )
+            }
             
             XrefButton(
                 text = "SAVE SETTINGS",
@@ -918,7 +972,6 @@ private fun SettingsSection(viewModel: HomeViewModel) {
                     viewModel.updateTurneyTitle(localTitleText.ifBlank { "XREF" })
                     viewModel.updateMultiLoginTemplate(localTemplateText.ifBlank { "BRING YOUR 10 MULTI-IDS INTO ROOM {room} NOW!" })
                     viewModel.saveTemplates(
-                        matchCall = localMatchCall.ifBlank { "[BROADCAST] Match starting: {teamA} vs {teamB}. Enter room: {room}" },
                         readyCheck = localReadyCheck.ifBlank { "[REFEREE] Are you ready? Reply 'rd' to confirm!" }
                     )
                 },

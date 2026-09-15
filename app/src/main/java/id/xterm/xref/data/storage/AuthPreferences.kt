@@ -30,9 +30,9 @@ object AuthPreferences {
     private val KEY_BROADCAST_INTERVAL = stringPreferencesKey("broadcast_interval")
     private val KEY_TURNEY_TITLE = stringPreferencesKey("turney_title")
     private val KEY_MULTI_LOGIN_TEMPLATE = stringPreferencesKey("multi_login_template")
-    private val KEY_MATCH_CALL_TEMPLATE = stringPreferencesKey("match_call_template")
     private val KEY_READY_CHECK_TEMPLATE = stringPreferencesKey("ready_check_template")
     private val KEY_KICKOFF_WARNING_TEMPLATE = stringPreferencesKey("kickoff_warning_template")
+    private val KEY_AUTO_LEAVE_STARTER = stringPreferencesKey("auto_leave_starter")
     private val KEY_LICENSE_SIGNATURE = stringPreferencesKey("license_signature")
     private val KEY_LICENSE_CANARY = stringPreferencesKey("license_canary")
 
@@ -93,16 +93,16 @@ object AuthPreferences {
         dataStore.edit { prefs -> prefs[KEY_MULTI_LOGIN_TEMPLATE] = template }
     }
 
-    suspend fun saveMatchCallTemplate(template: String) {
-        dataStore.edit { prefs -> prefs[KEY_MATCH_CALL_TEMPLATE] = template }
-    }
-
     suspend fun saveReadyCheckTemplate(template: String) {
         dataStore.edit { prefs -> prefs[KEY_READY_CHECK_TEMPLATE] = template }
     }
 
     suspend fun saveKickoffWarningTemplate(template: String) {
         dataStore.edit { prefs -> prefs[KEY_KICKOFF_WARNING_TEMPLATE] = template }
+    }
+
+    suspend fun saveAutoLeaveStarter(enabled: Boolean) {
+        dataStore.edit { prefs -> prefs[KEY_AUTO_LEAVE_STARTER] = enabled.toString() }
     }
 
     suspend fun saveLicense(signature: String, canary: String) {
@@ -134,13 +134,13 @@ object AuthPreferences {
     suspend fun getMatchFeeEnabled(): Boolean = dataStore.data.map { it[KEY_MATCH_FEE_ENABLED]?.toBoolean() ?: false }.first()
     suspend fun getMatchFeeNominal(): String = dataStore.data.map { it[KEY_MATCH_FEE_NOMINAL] ?: "0" }.first()
     suspend fun getWalletPin(): String = dataStore.data.map { it[KEY_WALLET_PIN] ?: "123456" }.first()
-    suspend fun getBroadcastInterval(): Int = dataStore.data.map { it[KEY_BROADCAST_INTERVAL]?.toIntOrNull() ?: 60 }.first()
-    suspend fun getTurneyTitle(): String = dataStore.data.map { it[KEY_TURNEY_TITLE] ?: "XREF" }.first()
-    suspend fun getMultiLoginTemplate(): String = dataStore.data.map { it[KEY_MULTI_LOGIN_TEMPLATE] ?: "BRING YOUR 10 MULTI-IDS INTO ROOM {room} NOW!" }.first()
-    suspend fun getMatchCallTemplate(): String = dataStore.data.map { it[KEY_MATCH_CALL_TEMPLATE] ?: "[BROADCAST] Match starting: {teamA} vs {teamB}. Enter room: {room}" }.first()
-    suspend fun getReadyCheckTemplate(): String = dataStore.data.map { it[KEY_READY_CHECK_TEMPLATE] ?: "[REFEREE] Are you ready? Reply 'rd' to confirm!" }.first()
-    suspend fun getKickoffWarningTemplate(): String = dataStore.data.map { it[KEY_KICKOFF_WARNING_TEMPLATE] ?: "[REFEREE] KICKOFF STARTED! Do not vote/kick for 60 seconds!" }.first()
+    suspend fun getBroadcastInterval(): Int = dataStore.data.map { it[KEY_BROADCAST_INTERVAL]?.toIntOrNull() ?: 120 }.first()
+    suspend fun getTurneyTitle(): String = dataStore.data.map { it[KEY_TURNEY_TITLE] ?: "KleponXclub" }.first()
+    suspend fun getMultiLoginTemplate(): String = dataStore.data.map { it[KEY_MULTI_LOGIN_TEMPLATE] ?: "Please enter your troop to {room} NOW!" }.first()
+    suspend fun getReadyCheckTemplate(): String = dataStore.data.map { it[KEY_READY_CHECK_TEMPLATE] ?: "/me :D/ Are you ready to fvck?" }.first()
     
+    suspend fun getAutoLeaveStarter(): Boolean = dataStore.data.map { it[KEY_AUTO_LEAVE_STARTER]?.toBoolean() ?: false }.first()
+
     suspend fun getLicenseSignature(): String? = dataStore.data.map { it[KEY_LICENSE_SIGNATURE] }.first()
     suspend fun getLicenseCanary(): String? = dataStore.data.map { it[KEY_LICENSE_CANARY] }.first()
 }

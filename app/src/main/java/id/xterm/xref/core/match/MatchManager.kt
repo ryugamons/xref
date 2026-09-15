@@ -1,5 +1,6 @@
 package id.xterm.xref.core.match
 
+import android.util.Log
 import id.xterm.xref.data.repository.WebSocketRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -7,17 +8,28 @@ import kotlinx.serialization.json.*
 import javax.inject.Inject
 import javax.inject.Singleton
 import java.util.concurrent.ConcurrentHashMap
+import java.util.Calendar
+import java.util.TimeZone
 
 sealed class MatchState {
     data object Idle : MatchState()
-    data object Running : MatchState()
-    data object Ended : MatchState()
-    data class Result(val winner: String) : MatchState()
+    data object Kickoff : MatchState()
+    data object Battle : MatchState() 
+    data object Ending : MatchState() 
+    data object Ended : MatchState()  
 }
 
 data class MatchParticipant(
     val id: String,
-    val hasVoted: Boolean = false
+    var isPresent: Boolean = true,
+    var isKicked: Boolean = false
+)
+
+data class KickLog(
+    val team: String, // "A" or "B"
+    val username: String,
+    val timeMs: Long,
+    val action: String // "KICKED" or "FAILED"
 )
 
 data class MatchSide(
@@ -25,83 +37,234 @@ data class MatchSide(
     val participants: List<MatchParticipant>
 )
 
-class MatchSession(val room: String) {
+class MatchSession(
+    val room: String,
+    private val webSocketRepository: WebSocketRepository,
+    private val onMatchFinished: (String, String, String, String, String, Boolean) -> Unit // room, phase, nameA, nameB, resultSummary, isSuspend
+) {
+    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    
     private val _state = MutableStateFlow<MatchState>(MatchState.Idle)
     val state = _state.asStateFlow()
 
-    private val _teamA = MutableStateFlow(MatchSide("Team A", emptyList()))
+    private val _teamA = MutableStateFlow(MatchSide("TEAM A", emptyList()))
     val teamA = _teamA.asStateFlow()
 
-    private val _teamB = MutableStateFlow(MatchSide("Team B", emptyList()))
+    private val _teamB = MutableStateFlow(MatchSide("TEAM B", emptyList()))
     val teamB = _teamB.asStateFlow()
 
-    private val _logs = MutableStateFlow<List<String>>(emptyList())
-    val logs = _logs.asStateFlow()
+    private var currentPhase: String = "MATCH"
+    
+    private val _kickLogs = MutableStateFlow<List<KickLog>>(emptyList())
+    val kickLogs = _kickLogs.asStateFlow()
 
     private val _kickCountMap = MutableStateFlow<Map<String, Int>>(emptyMap())
     val kickCountMap = _kickCountMap.asStateFlow()
 
-    private var lastKickTime = 0L
+    private var battleStartTime = 0L
+    private var voteTimer: Job? = null
+    private var postKickTimer: Job? = null
+    
+    private var isGoalSent = false
+    private var endReason: String = ""
 
-    fun start(teamAIds: List<String>, teamBIds: List<String>) {
-        _teamA.value = MatchSide("Team A", teamAIds.map { MatchParticipant(it) })
-        _teamB.value = MatchSide("Team B", teamBIds.map { MatchParticipant(it) })
-        _logs.value = listOf("Match Started in $room: ${teamAIds.size}vs${teamBIds.size}")
-        _state.value = MatchState.Running
+    fun start(phase: String, nameA: String, teamAIds: List<String>, nameB: String, teamBIds: List<String>) {
+        currentPhase = phase
+        _teamA.value = MatchSide(nameA, teamAIds.map { MatchParticipant(it) })
+        _teamB.value = MatchSide(nameB, teamBIds.map { MatchParticipant(it) })
+        _kickLogs.value = emptyList()
+        _state.value = MatchState.Kickoff
         _kickCountMap.value = emptyMap()
-        lastKickTime = System.currentTimeMillis()
+        isGoalSent = false
+        endReason = ""
+        battleStartTime = 0L
+        Log.d("XREF_MATCH", "Match Session Initialized in $room: $nameA vs $nameB")
     }
 
-    fun handleKick(from: String, body: String) {
-        val timestamp = System.currentTimeMillis()
+    private fun parseServerTimeMs(serverMessageId: String?): Long {
+        if (serverMessageId == null || !serverMessageId.startsWith("msg_")) return System.currentTimeMillis()
+        return try {
+            val raw = serverMessageId.substring(4) // Skip "msg_"
+            val parts = raw.split(".")
+            val tsPart = parts[0] // YYYYMMDDHHMMSS
+            val nanoPart = if (parts.size > 1) parts[1] else "0"
+
+            val year = tsPart.substring(0, 4).toInt()
+            val month = tsPart.substring(4, 6).toInt()
+            val day = tsPart.substring(6, 8).toInt()
+            val hour = tsPart.substring(8, 10).toInt()
+            val min = tsPart.substring(10, 12).toInt()
+            val sec = tsPart.substring(12, 14).toInt()
+            val ms = nanoPart.take(3).padEnd(3, '0').toInt()
+
+            val calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+            calendar.set(year, month - 1, day, hour, min, sec)
+            calendar.set(Calendar.MILLISECOND, ms)
+            calendar.timeInMillis
+        } catch (e: Exception) {
+            System.currentTimeMillis()
+        }
+    }
+
+    fun handleMessage(body: String, serverMessageId: String?) {
+        val serverNow = parseServerTimeMs(serverMessageId)
         
-        _kickCountMap.update { current ->
-            current.toMutableMap().apply {
-                this[from] = (this[from] ?: 0) + 1
+        // 1. Detect Battle Start (Kickoff Countdown Failed)
+        if (_state.value == MatchState.Kickoff && body.contains("Failed to kick", ignoreCase = true)) {
+            _state.value = MatchState.Battle
+            battleStartTime = serverNow
+            Log.d("XREF_MATCH", "Battle Started in $room at ServerTime: $serverNow")
+            return
+        }
+
+        // 2. Goal confirmation
+        if (body.contains("GOALLLLLLLLLL", ignoreCase = true)) {
+            if (_state.value == MatchState.Battle || _state.value == MatchState.Ending) {
+                _state.value = MatchState.Ended
+                calculateAndBroadcastResults()
+            }
+            return
+        }
+
+        // 3. Battle Logic
+        if (_state.value != MatchState.Battle) return
+
+        // Detect Vote
+        if (body.contains("A vote to kick", ignoreCase = true) && body.contains("started by", ignoreCase = true)) {
+            postKickTimer?.cancel()
+            
+            voteTimer?.cancel()
+            voteTimer = scope.launch {
+                delay(3000)
+                if (_state.value == MatchState.Battle) {
+                    sendGoal("TIMEOUT (VOTE HANG)")
+                }
             }
         }
 
-        if (_state.value !is MatchState.Running) return
+        // Detect Kicked
+        if (body.contains("has been kicked", ignoreCase = true)) {
+            val kickedUser = body.split(" ")[0].trim().lowercase()
+            voteTimer?.cancel()
+            
+            markKicked(kickedUser)
 
-        val diff = (timestamp - lastKickTime) / 1000f
-        lastKickTime = timestamp
+            postKickTimer?.cancel()
+            postKickTimer = scope.launch {
+                delay(3000)
+                if (_state.value == MatchState.Battle) {
+                    sendGoal("TIMEOUT (NO RESPONSE)")
+                }
+            }
 
-        val logEntry = "[${String.format("%.1fs", diff)}] $from Action: $body"
-        _logs.value = (listOf(logEntry) + _logs.value).take(100)
+            val diff = if (battleStartTime > 0) serverNow - battleStartTime else 0L
+            val team = getTeam(kickedUser)
+            if (team != "Unknown") {
+                val log = KickLog(team, kickedUser, diff, "KICKED")
+                _kickLogs.update { (listOf(log) + it).take(100) }
+                Log.d("XREF_MATCH", "Kick logged: $kickedUser at ${diff}ms (ServerTime)")
+            }
+        }
 
-        updateVoteStatus(from)
-        checkEndConditions()
+        // Vote Failed (During Battle)
+        if (body.contains("Failed to kick", ignoreCase = true)) {
+            val targetUser = body.replace("Failed to kick ", "", ignoreCase = true).trim().lowercase()
+            voteTimer?.cancel()
+            
+            val diff = if (battleStartTime > 0) serverNow - battleStartTime else 0L
+            val team = getTeam(targetUser)
+            if (team != "Unknown") {
+                val log = KickLog(team, targetUser, diff, "FAILED")
+                _kickLogs.update { (listOf(log) + it).take(100) }
+                Log.d("XREF_MATCH", "Vote failed logged: $targetUser at ${diff}ms (ServerTime)")
+            }
+        }
     }
 
-    private fun updateVoteStatus(id: String) {
+    fun handleUserLeft(username: String) {
+        if (_state.value != MatchState.Battle) return
+        
+        val user = username.lowercase()
+        val team = getTeam(user)
+        
+        if (team != "Unknown") {
+            // Explicit SUSPEND detection
+            Log.d("XREF_MATCH", "Suspend detected: $username left room")
+            sendGoal("SUSPEND ($team)")
+        }
+    }
+
+    private fun markKicked(username: String) {
+        val user = username.lowercase()
         _teamA.update { side ->
             side.copy(participants = side.participants.map { 
-                if (it.id == id) it.copy(hasVoted = true) else it 
+                if (it.id.lowercase() == user) it.copy(isKicked = true) else it 
             })
         }
         _teamB.update { side ->
             side.copy(participants = side.participants.map { 
-                if (it.id == id) it.copy(hasVoted = true) else it 
+                if (it.id.lowercase() == user) it.copy(isKicked = true) else it 
             })
         }
     }
 
-    private fun checkEndConditions() {
-        val teamACanVote = _teamA.value.participants.any { !it.hasVoted }
-        val teamBCanVote = _teamB.value.participants.any { !it.hasVoted }
+    private fun getTeam(username: String): String {
+        val user = username.lowercase()
+        if (_teamA.value.participants.any { it.id.lowercase() == user }) return "A"
+        if (_teamB.value.participants.any { it.id.lowercase() == user }) return "B"
+        return "Unknown"
+    }
 
-        if (!teamACanVote || !teamBCanVote) {
-            val reason = if (!teamACanVote) "Team A out of votes" else "Team B out of votes"
-            endMatch(reason)
+    private fun sendGoal(reason: String) {
+        if (isGoalSent) return
+        isGoalSent = true
+        endReason = reason
+        _state.value = MatchState.Ending
+        
+        webSocketRepository.sendDirect(room, "/goal")
+    }
+
+    private fun calculateAndBroadcastResults() {
+        scope.launch {
+            delay(3000) 
+            
+            val sideA = _teamA.value
+            val sideB = _teamB.value
+            val remainingA = sideA.participants.count { !it.isKicked }
+            val remainingB = sideB.participants.count { !it.isKicked }
+            
+            val isSuspendA = endReason.contains("SUSPEND (A)")
+            val isSuspendB = endReason.contains("SUSPEND (B)")
+            
+            val finalA = if (isSuspendA) 0 else remainingA
+            val finalB = if (isSuspendB) 0 else remainingB
+            
+            val winnerName = when {
+                isSuspendA -> sideB.name
+                isSuspendB -> sideA.name
+                finalA > finalB -> sideA.name
+                finalB > finalA -> sideB.name
+                else -> "DRAW"
+            }
+            
+            val scoreAStr = if (isSuspendA) "[SUSPEND]" else "[$finalA]"
+            val scoreBStr = if (isSuspendB) "[SUSPEND]" else "[$finalB]"
+            
+            val resultSummary = "${sideA.name.uppercase()} $scoreAStr vs $scoreBStr ${sideB.name.uppercase()}"
+            val winnerPart = if (winnerName != "DRAW") "\nWinner: ${winnerName.uppercase()}" else "\nRESULT: DRAW"
+            
+            // Battle Room Message
+            val resultMsg = "/me [BATTLE RESULT]\n$resultSummary.$winnerPart\nCongrats!! Please leave the room"
+            webSocketRepository.sendMessage(room, resultMsg, "REFEREE")
+            
+            // Notification for main broadcast
+            onMatchFinished(room, currentPhase, sideA.name, sideB.name, "$resultSummary${winnerPart.replace("\n", " ")}", isSuspendA || isSuspendB)
         }
     }
 
-    private fun endMatch(reason: String) {
-        _state.value = MatchState.Ended
-        _logs.value = (listOf("Match Ended: $reason") + _logs.value).take(50)
-    }
-
     fun stop() {
+        voteTimer?.cancel()
+        postKickTimer?.cancel()
         _state.value = MatchState.Idle
     }
 }
@@ -123,43 +286,46 @@ class MatchManager @Inject constructor(
 
     private val _activeSessions = MutableStateFlow<List<String>>(emptyList())
     val activeSessions = _activeSessions.asStateFlow()
+    
+    var mainBroadcastRoom: String = ""
 
     init {
         scope.launch {
-            webSocketRepository.events.collect { jsonObject ->
+            webSocketRepository.subscribeEvents().collect { jsonObject ->
                 val type = jsonObject["type"]?.jsonPrimitive?.content
-                if (type == "room.message.received" || type == "room.message") {
-                    val room = jsonObject["room"]?.jsonPrimitive?.content?.lowercase() ?: ""
-                    val from = jsonObject["username"]?.jsonPrimitive?.content ?: "System"
-                    val body = jsonObject["body"]?.jsonPrimitive?.content ?: ""
-                    
-                    if (body.contains("kicked", ignoreCase = true)) {
-                         sessions[room]?.handleKick(from, body)
+                val room = jsonObject["room"]?.jsonPrimitive?.content?.lowercase() ?: ""
+                
+                when (type) {
+                    "room.message.received", "room.message" -> {
+                        val body = jsonObject["body"]?.jsonPrimitive?.content ?: ""
+                        val serverMessageId = jsonObject["server_message_id"]?.jsonPrimitive?.content
+                        sessions[room]?.handleMessage(body, serverMessageId)
                     }
-                } else if (type == "room.participant.removed") {
-                    val room = jsonObject["room"]?.jsonPrimitive?.content?.lowercase() ?: ""
-                    val username = jsonObject["username"]?.jsonPrimitive?.content?.lowercase() ?: ""
-                    
-                    sessions[room]?.let { session ->
-                        val isParticipant = session.teamA.value.participants.any { it.id.lowercase() == username } ||
-                                           session.teamB.value.participants.any { it.id.lowercase() == username }
-                        
-                        if (isParticipant) {
-                            stopMatch(room)
-                        }
+                    "room.left" -> {
+                        val username = jsonObject["username"]?.jsonPrimitive?.content ?: ""
+                        sessions[room]?.handleUserLeft(username)
                     }
                 }
             }
         }
     }
 
-    fun startMatch(room: String, teamAIds: List<String>, teamBIds: List<String>) {
+    fun startMatch(room: String, phase: String, nameA: String, teamAIds: List<String>, nameB: String, teamBIds: List<String>) {
         val normalizedRoom = room.lowercase()
         val session = sessions.getOrPut(normalizedRoom) { 
-            MatchSession(normalizedRoom) 
+            MatchSession(normalizedRoom, webSocketRepository) { r, ph, nA, nB, summary, susp ->
+                broadcastToMain(r, ph, nA, nB, summary, susp)
+            }
         }
-        session.start(teamAIds, teamBIds)
+        session.start(phase, nameA, teamAIds, nameB, teamBIds)
         updateActiveSessions()
+    }
+
+    private fun broadcastToMain(battleRoom: String, phase: String, nameA: String, nameB: String, resultSummary: String, isSuspend: Boolean) {
+        if (mainBroadcastRoom.isNotEmpty()) {
+            val msg = "/me [${phase.uppercase()}]\n[${battleRoom.uppercase()}]\n$resultSummary"
+            webSocketRepository.sendMessage(mainBroadcastRoom, msg, "REFEREE")
+        }
     }
 
     fun getSession(room: String): MatchSession? {
@@ -167,7 +333,7 @@ class MatchManager @Inject constructor(
     }
 
     private fun updateActiveSessions() {
-        _activeSessions.value = sessions.keys().toList()
+        _activeSessions.value = sessions.keys().toList().toMutableList()
     }
 
     fun stopMatch(room: String) {

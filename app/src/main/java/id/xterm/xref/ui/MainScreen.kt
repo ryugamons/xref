@@ -11,7 +11,6 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.automirrored.rounded.List
-import androidx.compose.material.icons.rounded.Assessment
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material3.AlertDialog
@@ -56,7 +55,6 @@ import kotlinx.coroutines.launch
 fun MainScreen(
     homeViewModel: HomeViewModel = viewModel()
 ) {
-    val matchManager = homeViewModel.matchManager
     var showInfoDialog by remember { mutableStateOf(false) }
 
     val pagerState = rememberPagerState(initialPage = BottomTab.entries.indexOf(BottomTab.Home)) {
@@ -199,7 +197,6 @@ fun MainScreen(
                             }
                         }
                     )
-                    BottomTab.Statistics -> StatisticsScreen(matchManager)
                     BottomTab.Room -> RoomScreen(homeViewModel)
                 }
             }
@@ -210,6 +207,5 @@ fun MainScreen(
 enum class BottomTab(val label: String, val icon: ImageVector, val destination: Destination) {
     Home("DASHBOARD", Icons.Rounded.Home, Destination.Home),
     Room("ROOM", Icons.AutoMirrored.Rounded.Chat, Destination.Room),
-    Bracket("BRACKET", Icons.AutoMirrored.Rounded.List, Destination.Bracket),
-    Statistics("STATS", Icons.Rounded.Assessment, Destination.Statistics)
+    Bracket("BRACKET", Icons.AutoMirrored.Rounded.List, Destination.Bracket)
 }

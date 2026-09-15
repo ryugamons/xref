@@ -253,7 +253,7 @@ private fun RoomChatDetail(
                 modifier = Modifier.weight(1f)
             )
 
-            // Team Selection Buttons moved here
+            // Team Selection Buttons in same row
             val players = homeViewModel.scheduledMatches[roomName.lowercase()]
             if (players != null) {
                 Row(
@@ -261,7 +261,7 @@ private fun RoomChatDetail(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     XrefButton(
-                        text = players.first.firstOrNull() ?: "TEAM A",
+                        text = players.nameA,
                         onClick = { 
                             homeViewModel.currentSelectingTeamName = "TEAM A"
                             homeViewModel.teamSelectionDialogVisible = true 
@@ -274,7 +274,7 @@ private fun RoomChatDetail(
                         contentPadding = PaddingValues(0.dp)
                     )
                     XrefButton(
-                        text = players.second.firstOrNull() ?: "TEAM B",
+                        text = players.nameB,
                         onClick = { 
                             homeViewModel.currentSelectingTeamName = "TEAM B"
                             homeViewModel.teamSelectionDialogVisible = true 
@@ -289,7 +289,6 @@ private fun RoomChatDetail(
                 }
             }
         }
-
 
         Row(modifier = Modifier.weight(1f)) {
             ChatView(
@@ -449,12 +448,33 @@ fun TeamSelectionDialog(viewModel: HomeViewModel, roomName: String) {
                 
                 Spacer(modifier = Modifier.height(8.dp))
                 
-                Text(
-                    text = "SELECTED: ${selectedList.size} IDs",
-                    color = NeonGreen.copy(alpha = 0.7f),
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "SELECTED: ${selectedList.size} IDs",
+                        color = if (selectedList.size == 10) NeonGreen else Color.Yellow,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    
+                    TextButton(
+                        onClick = { selectedList.clear() },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(24.dp)
+                    ) {
+                        Text(
+                            text = "CLEAR ALL",
+                            color = Color(0xFF8B2525),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -495,7 +515,8 @@ fun TeamSelectionDialog(viewModel: HomeViewModel, roomName: String) {
                 text = "OK",
                 onClick = { viewModel.teamSelectionDialogVisible = false },
                 modifier = Modifier.width(80.dp),
-                height = 36.dp
+                height = 36.dp,
+                enabled = selectedList.size == 10
             )
         },
         containerColor = DarkBackground,
