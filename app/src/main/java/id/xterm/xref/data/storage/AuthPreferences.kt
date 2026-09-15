@@ -33,6 +33,8 @@ object AuthPreferences {
     private val KEY_MATCH_CALL_TEMPLATE = stringPreferencesKey("match_call_template")
     private val KEY_READY_CHECK_TEMPLATE = stringPreferencesKey("ready_check_template")
     private val KEY_KICKOFF_WARNING_TEMPLATE = stringPreferencesKey("kickoff_warning_template")
+    private val KEY_LICENSE_SIGNATURE = stringPreferencesKey("license_signature")
+    private val KEY_LICENSE_CANARY = stringPreferencesKey("license_canary")
 
     suspend fun saveRefereeAuth(id: String, password: String) {
         dataStore.edit { prefs ->
@@ -103,6 +105,13 @@ object AuthPreferences {
         dataStore.edit { prefs -> prefs[KEY_KICKOFF_WARNING_TEMPLATE] = template }
     }
 
+    suspend fun saveLicense(signature: String, canary: String) {
+        dataStore.edit { prefs ->
+            prefs[KEY_LICENSE_SIGNATURE] = signature
+            prefs[KEY_LICENSE_CANARY] = canary
+        }
+    }
+
     suspend fun getRefereeId(): String = dataStore.data.map { it[KEY_REFEREE_ID] ?: "" }.first()
     suspend fun getRefereePassword(): String = dataStore.data.map { it[KEY_REFEREE_PASSWORD] ?: "" }.first()
     suspend fun getStarterId(): String = dataStore.data.map { it[KEY_STARTER_ID] ?: "" }.first()
@@ -131,4 +140,7 @@ object AuthPreferences {
     suspend fun getMatchCallTemplate(): String = dataStore.data.map { it[KEY_MATCH_CALL_TEMPLATE] ?: "[BROADCAST] Match starting: {teamA} vs {teamB}. Enter room: {room}" }.first()
     suspend fun getReadyCheckTemplate(): String = dataStore.data.map { it[KEY_READY_CHECK_TEMPLATE] ?: "[REFEREE] Are you ready? Reply 'rd' to confirm!" }.first()
     suspend fun getKickoffWarningTemplate(): String = dataStore.data.map { it[KEY_KICKOFF_WARNING_TEMPLATE] ?: "[REFEREE] KICKOFF STARTED! Do not vote/kick for 60 seconds!" }.first()
+    
+    suspend fun getLicenseSignature(): String? = dataStore.data.map { it[KEY_LICENSE_SIGNATURE] }.first()
+    suspend fun getLicenseCanary(): String? = dataStore.data.map { it[KEY_LICENSE_CANARY] }.first()
 }

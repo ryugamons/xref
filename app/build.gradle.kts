@@ -11,21 +11,50 @@ android {
 
     defaultConfig {
         applicationId = "id.xterm.xref"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        externalNativeBuild {
+            cmake {
+                cppFlags("-Os -fvisibility=hidden")
+                arguments("-DANDROID_STL=c++_static", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON")
+            }
+        }
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file(project.findProperty("RELEASE_STORE_FILE") ?: "release-key.jks")
+            storePassword = project.findProperty("RELEASE_STORE_PASSWORD")?.toString() ?: ""
+            keyAlias = project.findProperty("RELEASE_KEY_ALIAS")?.toString() ?: ""
+            keyPassword = project.findProperty("RELEASE_KEY_PASSWORD")?.toString() ?: ""
+        }
     }
 
     buildTypes {
         release {
-            optimization {
-                enable = false
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            
+            ndk {
+                debugSymbolLevel = "none"
             }
         }
     }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11

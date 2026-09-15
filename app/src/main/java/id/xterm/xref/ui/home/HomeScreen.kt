@@ -20,7 +20,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -48,6 +50,27 @@ fun DashboardScreen(
     onNavigateToRooms: () -> Unit = {},
     onLoadToDashboard: (teamA: List<String>, teamB: List<String>) -> Unit = { _, _ -> }
 ) {
+    if (viewModel.showLicenseDialog) {
+        LicenseDialog(viewModel)
+    }
+
+    if (!viewModel.isAuthorized) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DarkBackground),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "LICENSE REQUIRED TO ACCESS TERMINAL",
+                color = NeonGreen,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+        return
+    }
+
     var activeSection by remember { mutableStateOf(HomeSection.REFEREE) }
     
     val configuration = LocalConfiguration.current
@@ -909,3 +932,90 @@ private fun SettingsSection(viewModel: HomeViewModel) {
         }
     }
 }
+
+@Composable
+fun LicenseDialog(viewModel: HomeViewModel) {
+    val clipboardManager = LocalClipboardManager.current
+
+    AlertDialog(
+        onDismissRequest = { /* Force license registration */ },
+        title = {
+            Text(
+                text = "ACTIVATE TERMINAL",
+                color = NeonGreen,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "CHALLENGE KEY:",
+                        color = TextDim,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    
+                    Text(
+                        text = "COPY",
+                        color = NeonGreen,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier
+                            .clickable { 
+                                clipboardManager.setText(AnnotatedString(viewModel.challengeText))
+                            }
+                            .padding(4.dp)
+                    )
+                }
+
+                Text(
+                    text = viewModel.challengeText,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(DarkGreen900)
+                        .padding(8.dp)
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                XrefTextField(
+                    value = viewModel.licenseInput,
+                    onValueChange = { viewModel.licenseInput = it },
+                    label = "INPUT LICENSE KEY"
+                )
+                
+                if (viewModel.licenseErrorMessage != null) {
+                    Text(
+                        text = viewModel.licenseErrorMessage!!,
+                        color = Color.Red,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            XrefButton(
+                text = "ACTIVATE",
+                onClick = { viewModel.registerLicense() },
+                modifier = Modifier.width(120.dp),
+                height = 42.dp
+            )
+        },
+        containerColor = DarkBackground,
+        titleContentColor = NeonGreen,
+        textContentColor = Color.White,
+        shape = RoundedCornerShape(8.dp)
+    )
+}
+

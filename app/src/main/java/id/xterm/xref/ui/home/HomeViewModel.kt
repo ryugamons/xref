@@ -1,5 +1,6 @@
 package id.xterm.xref.ui.home
 
+import android.util.Base64
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -9,6 +10,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import id.xterm.core.license.ChallengeUtil
+import id.xterm.core.security.SecurityManager
+import id.xterm.xref.XrefApplication
 import id.xterm.xref.core.match.MatchManager
 import id.xterm.xref.core.websocket.ChatMessage
 import id.xterm.xref.data.repository.ConnectionState
@@ -19,8 +23,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.longOrNull
-import kotlinx.serialization.json.jsonPrimitive
 
 enum class MatchPhase {
     IDLE, REGISTRATION, ROLLING, BRACKET_READY, IN_PROGRESS, FINISHED
@@ -28,6 +30,7 @@ enum class MatchPhase {
 
 class HomeViewModel : ViewModel() {
     private val webSocketRepository = WebSocketRepository.getInstance()
+    private val securityManager = SecurityManager.getInstance()
     val matchManager = MatchManager.getInstance(webSocketRepository)
 
     var refereeId by mutableStateOf("")
@@ -35,6 +38,13 @@ class HomeViewModel : ViewModel() {
     var starterId by mutableStateOf("")
     var starterPassword by mutableStateOf("")
     
+    // License State
+    var isAuthorized by mutableStateOf(false)
+    var showLicenseDialog by mutableStateOf(false)
+    var challengeText by mutableStateOf("")
+    var licenseInput by mutableStateOf("")
+    var licenseErrorMessage by mutableStateOf<String?>(null)
+
     // Room states
     var broadcastRoom by mutableStateOf("")
     val battleRooms = mutableStateListOf<String>()
@@ -59,7 +69,6 @@ class HomeViewModel : ViewModel() {
     val participantRolls = mutableStateMapOf<String, String>()
     val participantsWhoMustReRoll = mutableStateListOf<String>()
     
-    // Track scheduled matches (room -> teamA players, teamB players)
     val scheduledMatches = mutableStateMapOf<String, Pair<List<String>, List<String>>>()
 
     val duplicateRolls by derivedStateOf {
@@ -84,16 +93,13 @@ class HomeViewModel : ViewModel() {
     var refereeStatusText by mutableStateOf("offline")
     var starterStatusText by mutableStateOf("offline")
 
-    // Active rooms tracking
     val activeRooms = webSocketRepository.activeRooms
     private val _roomMessagesMap = mutableStateMapOf<String, SnapshotStateList<ChatMessage>>()
     val roomMessagesMap: Map<String, List<ChatMessage>> = _roomMessagesMap
 
-    // UI state persistence
     var selectedRoomInRoomsTab by mutableStateOf<String?>(null)
 
     init {
-        // Load saved credentials, rooms, match settings and system settings
         viewModelScope.launch {
             refereeId = AuthPreferences.getRefereeId()
             refereePassword = AuthPreferences.getRefereePassword()
@@ -119,9 +125,10 @@ class HomeViewModel : ViewModel() {
             multiLoginTemplate = AuthPreferences.getMultiLoginTemplate()
             matchCallTemplate = AuthPreferences.getMatchCallTemplate()
             readyCheckTemplate = AuthPreferences.getReadyCheckTemplate()
+            
+            checkLicense()
         }
 
-        // Listen to Referee connection states
         viewModelScope.launch {
             webSocketRepository.refereeConnectionState.collect { state ->
                 isRefereeConnected = state is ConnectionState.Connected
@@ -145,7 +152,6 @@ class HomeViewModel : ViewModel() {
             }
         }
 
-        // Listen to Starter connection states
         viewModelScope.launch {
             webSocketRepository.starterConnectionState.collect { state ->
                 isStarterConnected = state is ConnectionState.Connected
@@ -167,7 +173,6 @@ class HomeViewModel : ViewModel() {
             }
         }
 
-        // Listen to wallet updates for all users
         viewModelScope.launch {
             webSocketRepository.events.collect { json ->
                 if (json["type"]?.jsonPrimitive?.content == "wallet.updated" && matchPhase == MatchPhase.REGISTRATION) {
@@ -189,21 +194,18 @@ class HomeViewModel : ViewModel() {
             }
         }
 
-        // Listen to Referee wallet updates
         viewModelScope.launch {
             webSocketRepository.refereeWalletBalance.collect { balance ->
                 refereeCredits = balance
             }
         }
 
-        // Listen to Starter wallet updates
         viewModelScope.launch {
             webSocketRepository.starterWalletBalance.collect { balance ->
                 starterCredits = balance
             }
         }
 
-        // Listen to room messages
         viewModelScope.launch {
             webSocketRepository.roomMessages.collect { pair ->
                 val roomName = pair.first
@@ -253,7 +255,6 @@ class HomeViewModel : ViewModel() {
                     }
                 }
 
-                // 3. Detect "JOIN" command for FREE matches
                 if (matchPhase == MatchPhase.REGISTRATION && !isRegistrationFeeEnabled) {
                     if (message.text.trim().equals("JOIN", ignoreCase = true)) {
                         val sender = message.username
@@ -271,6 +272,65 @@ class HomeViewModel : ViewModel() {
                 list.add(message)
                 if (list.size > 100) list.removeAt(0)
             }
+        }
+    }
+
+    private suspend fun checkLicense() {
+        val storedSignature = AuthPreferences.getLicenseSignature()
+        val storedCanaryB64 = AuthPreferences.getLicenseCanary()
+        
+        val context = XrefApplication.getContext()
+        val androidId = ChallengeUtil.getAndroidId(context)
+        val challenge = ChallengeUtil.computeSerial("XREF_USER", androidId)
+        challengeText = challenge
+
+        if (storedSignature != null && storedCanaryB64 != null) {
+            val canaryBlob = try { Base64.decode(storedCanaryB64, Base64.DEFAULT) } catch (e: Exception) { null }
+            if (canaryBlob != null) {
+                val valid = securityManager.activateAndVerify("XREF_USER", challenge, storedSignature, canaryBlob)
+                if (valid) {
+                    isAuthorized = true
+                    showLicenseDialog = false
+                    return
+                }
+            }
+        }
+        
+        isAuthorized = false
+        showLicenseDialog = true
+    }
+
+    fun registerLicense() {
+        val cleanedLicense = licenseInput.replace(Regex("\\s+"), "")
+        if (cleanedLicense.isEmpty()) {
+            licenseErrorMessage = "PLEASE INPUT KEY"
+            return
+        }
+
+        val parts = cleanedLicense.split(".")
+        if (parts.size != 2) {
+            licenseErrorMessage = "INVALID LICENSE."
+            return
+        }
+        val (sigB64, canaryB64) = parts
+        val canaryBlob = try { Base64.decode(canaryB64, Base64.DEFAULT) } catch (e: Exception) {
+            licenseErrorMessage = "INVALID LICENSE."
+            return
+        }
+
+        val context = XrefApplication.getContext()
+        val androidId = ChallengeUtil.getAndroidId(context)
+        val challenge = ChallengeUtil.computeSerial("XREF_USER", androidId)
+
+        val valid = securityManager.activateAndVerify("XREF_USER", challenge, sigB64, canaryBlob)
+        if (valid) {
+            viewModelScope.launch {
+                AuthPreferences.saveLicense(sigB64, canaryB64)
+                isAuthorized = true
+                showLicenseDialog = false
+            }
+        } else {
+            licenseErrorMessage = "INVALID LICENSE."
         }
     }
 
@@ -513,7 +573,6 @@ class HomeViewModel : ViewModel() {
             !matchesInProgress.contains(it.lowercase())
         } ?: battleRooms.firstOrNull { it.isNotEmpty() } ?: "arena"
 
-        // Schedule players for this room
         scheduledMatches[roomToUse.lowercase()] = Pair(listOf(teamA), listOf(teamB))
 
         if (isRefereeConnected) {
@@ -546,7 +605,6 @@ class HomeViewModel : ViewModel() {
                                     if (enteringUser == teamAUser) isTeamAEntered = true
                                     if (enteringUser == teamBUser) isTeamBEntered = true
                                 } else if (type == "room.joined") {
-                                    // Check initial participants list in the room
                                     val participants = json["participants"]?.jsonArray
                                     participants?.forEach { p ->
                                         val u = p.jsonObject["username"]?.jsonPrimitive?.content?.lowercase() ?: ""
@@ -571,11 +629,19 @@ class HomeViewModel : ViewModel() {
                             webSocketRepository.sendMessage(normalizedBroadcastRoom, countdownMessage, "REFEREE")
                             
                             val interval = if (remainingSeconds > 60) 60 else 30
-                            delay(interval * 1000L) 
+                            
+                            // Check frequently during the delay to exit immediately if both teams enter
+                            var waited = 0
+                            while (waited < interval && !(isTeamAEntered && isTeamBEntered)) {
+                                delay(1000)
+                                waited += 1
+                            }
                             remainingSeconds -= interval
                         }
                         
-                        if (!(isTeamAEntered && isTeamBEntered)) {
+                        // ONLY perform DQ logic if the loop finished due to timeout (remainingSeconds <= 0)
+                        // and not all teams are present.
+                        if (remainingSeconds <= 0 && !(isTeamAEntered && isTeamBEntered)) {
                             // DQ Logic
                             val dqMessage = when {
                                 !isTeamAEntered && isTeamBEntered -> {
@@ -604,12 +670,10 @@ class HomeViewModel : ViewModel() {
         val normalizedRoom = room.lowercase()
         viewModelScope.launch {
             if (isStarterConnected) {
-                // Command starter to enter room and do self kick
                 webSocketRepository.joinRoom(normalizedRoom, "STARTER")
                 delay(500)
                 webSocketRepository.sendMessage(normalizedRoom, "/kick $starterId", "STARTER")
                 
-                // ACTIVATION START: Create battle session only after kickoff triggered
                 scheduledMatches[normalizedRoom]?.let { (teamA, teamB) ->
                     matchManager.startMatch(normalizedRoom, teamA, teamB)
                 }
