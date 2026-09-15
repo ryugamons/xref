@@ -23,7 +23,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.xterm.xref.ui.components.ChatView
@@ -150,7 +149,7 @@ private fun RoomList(rooms: List<String>, viewModel: HomeViewModel, onRoomClick:
                     color = TextDim,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
-                    textAlign = TextAlign.Center
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
             }
         } else {
@@ -248,12 +247,49 @@ private fun RoomChatDetail(
             Text(
                 text = roomName.uppercase(),
                 color = NeonGreen,
-                fontSize = 16.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier.weight(1f)
             )
+
+            // Team Selection Buttons moved here
+            val players = homeViewModel.scheduledMatches[roomName.lowercase()]
+            if (players != null) {
+                Row(
+                    modifier = Modifier.weight(2f),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    XrefButton(
+                        text = players.first.firstOrNull() ?: "TEAM A",
+                        onClick = { 
+                            homeViewModel.currentSelectingTeamName = "TEAM A"
+                            homeViewModel.teamSelectionDialogVisible = true 
+                        },
+                        modifier = Modifier.weight(1f),
+                        height = 28.dp,
+                        fontSize = 9.sp,
+                        containerColor = if (homeViewModel.selectedTeamAIds.isNotEmpty()) NeonGreen else DarkGreen800,
+                        contentColor = if (homeViewModel.selectedTeamAIds.isNotEmpty()) Color.Black else NeonGreen,
+                        contentPadding = PaddingValues(0.dp)
+                    )
+                    XrefButton(
+                        text = players.second.firstOrNull() ?: "TEAM B",
+                        onClick = { 
+                            homeViewModel.currentSelectingTeamName = "TEAM B"
+                            homeViewModel.teamSelectionDialogVisible = true 
+                        },
+                        modifier = Modifier.weight(1f),
+                        height = 28.dp,
+                        fontSize = 9.sp,
+                        containerColor = if (homeViewModel.selectedTeamBIds.isNotEmpty()) NeonGreen else DarkGreen800,
+                        contentColor = if (homeViewModel.selectedTeamBIds.isNotEmpty()) Color.Black else NeonGreen,
+                        contentPadding = PaddingValues(0.dp)
+                    )
+                }
+            }
         }
+
 
         Row(modifier = Modifier.weight(1f)) {
             ChatView(
@@ -318,7 +354,7 @@ private fun RoomChatDetail(
                         text = { 
                             Text(
                                 text = "KICK OFF", 
-                                color = Color(0xFFFF5252), 
+                                color = Color(0xFF8B2525), 
                                 fontSize = 11.sp, 
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.ExtraBold
@@ -364,4 +400,105 @@ private fun RoomChatDetail(
             )
         }
     }
+    
+    if (homeViewModel.teamSelectionDialogVisible) {
+        TeamSelectionDialog(homeViewModel, roomName)
+    }
+}
+
+@Composable
+fun TeamSelectionDialog(viewModel: HomeViewModel, roomName: String) {
+    var filterText by remember { mutableStateOf("") }
+    val isTeamA = viewModel.currentSelectingTeamName == "TEAM A"
+    val selectedList = if (isTeamA) viewModel.selectedTeamAIds else viewModel.selectedTeamBIds
+    val otherTeamList = if (isTeamA) viewModel.selectedTeamBIds else viewModel.selectedTeamAIds
+    
+    val allParticipants by viewModel.roomParticipants.collectAsState()
+    val roomParticipantsList = (allParticipants[roomName.lowercase()] ?: emptyList())
+        .filter { !otherTeamList.contains(it) }
+    
+    val filteredParticipants = remember(roomParticipantsList, filterText) {
+        if (filterText.isBlank()) roomParticipantsList
+        else roomParticipantsList.filter { it.contains(filterText, ignoreCase = true) }
+    }
+
+    LaunchedEffect(filterText) {
+        if (filterText.length >= 3) {
+            viewModel.autoSelectParticipants(filterText, isTeamA)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = { viewModel.teamSelectionDialogVisible = false },
+        title = {
+            Text(
+                text = "SELECT MULTI FOR ${viewModel.currentSelectingTeamName}",
+                color = NeonGreen,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+                XrefTextField(
+                    value = filterText,
+                    onValueChange = { filterText = it },
+                    label = "Filter Name (min 3 chars for auto-select)"
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Text(
+                    text = "SELECTED: ${selectedList.size} IDs",
+                    color = NeonGreen.copy(alpha = 0.7f),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(filteredParticipants) { username ->
+                        val isSelected = selectedList.contains(username)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (isSelected) NeonGreen.copy(alpha = 0.2f) else Color.Transparent)
+                                .border(0.5.dp, if (isSelected) NeonGreen else Color.Gray.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                                .clickable { viewModel.toggleParticipantSelection(username, isTeamA) }
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = isSelected,
+                                onCheckedChange = { viewModel.toggleParticipantSelection(username, isTeamA) },
+                                colors = CheckboxDefaults.colors(checkedColor = NeonGreen, checkmarkColor = Color.Black)
+                            )
+                            Text(
+                                text = username,
+                                color = if (isSelected) NeonGreen else Color.White,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            XrefButton(
+                text = "OK",
+                onClick = { viewModel.teamSelectionDialogVisible = false },
+                modifier = Modifier.width(80.dp),
+                height = 36.dp
+            )
+        },
+        containerColor = DarkBackground,
+        shape = RoundedCornerShape(8.dp)
+    )
 }

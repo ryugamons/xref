@@ -23,6 +23,7 @@ fun XrefButton(
     containerColor: androidx.compose.ui.graphics.Color = NeonGreen,
     contentColor: androidx.compose.ui.graphics.Color = DarkGreen900,
     height: androidx.compose.ui.unit.Dp = 48.dp,
+    fontSize: androidx.compose.ui.unit.TextUnit = 14.sp,
     contentPadding: androidx.compose.foundation.layout.PaddingValues = ButtonDefaults.ContentPadding
 ) {
     Button(
@@ -43,7 +44,7 @@ fun XrefButton(
         Text(
             text = text.uppercase(),
             fontWeight = FontWeight.Bold,
-            fontSize = 14.sp
+            fontSize = fontSize
         )
     }
 }

@@ -18,7 +18,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.xterm.xref.core.match.MatchManager
@@ -30,10 +29,6 @@ import java.util.Locale
 
 @Composable
 fun StatisticsScreen(matchManager: MatchManager) {
-    // Note: Since we now have multi-session match manager, Statistics needs to 
-    // decide which session to show. For now, we'll show a placeholder or 
-    // the first active session if available.
-    
     val activeSessions by matchManager.activeSessions.collectAsState()
     
     if (activeSessions.isEmpty()) {
@@ -44,9 +39,8 @@ fun StatisticsScreen(matchManager: MatchManager) {
         val session = matchManager.getSession(activeSessions[0])
         if (session != null) {
             val kickCountMap by session.kickCountMap.collectAsState()
-            val logs by session.logs.collectAsState()
+            val logs by session.logs.collectAsState(initial = emptyList())
             
-            // Re-using the content with session data
             StatisticsContent(0f, kickCountMap, emptyList())
         }
     }
@@ -58,83 +52,94 @@ fun StatisticsContent(
     kickCountMap: Map<String, Int>,
     kickHistory: List<Long>,
 ) {
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
-            .padding(16.dp)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            text = "> LIVE STATISTICS",
-            color = NeonGreen,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
+        item {
+            Text(
+                text = "> LIVE STATISTICS",
+                color = NeonGreen,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // KPS Meter
-            Box(modifier = Modifier.weight(1f)) {
-                KpsMeter(kps)
-            }
-            
-            // Stats Summary
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(120.dp)
-                    .border(1.dp, NeonGreen, RoundedCornerShape(2.dp))
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.SpaceAround
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                StatValue("TOTAL KICKS", kickCountMap.values.sum().toString())
-                StatValue("ACTIVE IDS", kickCountMap.size.toString())
-                StatValue("PEAK KPS", "12.5") // Mock for now
+                // KPS Meter
+                Box(modifier = Modifier.weight(1f)) {
+                    KpsMeter(kps)
+                }
+                
+                // Stats Summary
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(120.dp)
+                        .border(1.dp, NeonGreen, RoundedCornerShape(2.dp))
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.SpaceAround
+                ) {
+                    StatValue("TOTAL KICKS", kickCountMap.values.sum().toString())
+                    StatValue("ACTIVE IDS", kickCountMap.size.toString())
+                    StatValue("PEAK KPS", "0.0") 
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        item {
+            Text(
+                text = "> ID ACTIVITY",
+                color = NeonGreen,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        }
 
-        Text(
-            text = "> ID ACTIVITY",
-            color = NeonGreen,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .border(1.dp, NeonGreen, RoundedCornerShape(2.dp))
-                .background(Color.Black.copy(alpha = 0.3f))
-                .padding(8.dp)
-        ) {
-            items(
-                kickCountMap.toList().asSequence().sortedByDescending { it.second }.toList()
-            ) { (id, count) ->
+        val sortedActivity = kickCountMap.toList().sortedByDescending { it.second }
+        if (sortedActivity.isEmpty()) {
+            item {
+                Text(
+                    text = "NO ACTIVITY DATA",
+                    color = NeonGreen.copy(alpha = 0.3f),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(vertical = 12.dp)
+                )
+            }
+        } else {
+            items(sortedActivity) { (id, count) ->
                 IdActivityItem(id, count)
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = "> ROOM ACTIVITY (LAST 60S)",
-            color = NeonGreen,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
+        item {
+            Text(
+                text = "> ROOM ACTIVITY (60S)",
+                color = NeonGreen,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        }
         
-        RoomActivityGraph(kickHistory)
+        item {
+            RoomActivityGraph(kickHistory)
+        }
+        
+        item {
+            Spacer(modifier = Modifier.height(24.dp))
+        }
     }
 }
 
@@ -166,7 +171,6 @@ fun KpsMeter(kps: Float) {
             val center = Offset(size.width / 2, size.height * 0.85f)
             val radius = size.height * 0.7f
             
-            // Draw scale
             drawArc(
                 color = NeonGreen.copy(alpha = 0.1f),
                 startAngle = 180f,
@@ -177,7 +181,6 @@ fun KpsMeter(kps: Float) {
                 style = Stroke(width = 4.dp.toPx())
             )
 
-            // Draw value arc
             val sweep = (animatedKps / 20f).coerceIn(0f, 1f) * 180f
             drawArc(
                 color = NeonGreen,
@@ -189,7 +192,6 @@ fun KpsMeter(kps: Float) {
                 style = Stroke(width = 4.dp.toPx())
             )
 
-            // Draw needle
             val angle = 180f + sweep
             val needleLen = radius * 0.9f
             val endX = center.x + (needleLen * cos(Math.toRadians(angle.toDouble())).toFloat())
@@ -231,7 +233,7 @@ fun IdActivityItem(id: String, count: Int) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -262,7 +264,7 @@ fun IdActivityItem(id: String, count: Int) {
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier.width(30.dp),
-                textAlign = TextAlign.End
+                textAlign = androidx.compose.ui.text.style.TextAlign.End
             )
         }
     }
@@ -308,5 +310,3 @@ fun RoomActivityGraph(kickHistory: List<Long>) {
         }
     }
 }
-
-

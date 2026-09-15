@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -97,28 +98,6 @@ fun BracketScreen(
             .background(DarkBackground)
             .padding(16.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "> TOURNAMENT BRACKET",
-                color = NeonGreen,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
-            Text(
-                text = "TAP MATCH TO SUMMON",
-                color = NeonGreen.copy(alpha = 0.5f),
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -203,16 +182,20 @@ fun BracketScreen(
                                         fontWeight = FontWeight.Bold
                                     )
                                     
+                                    val isThisActiveSummon = homeViewModel.activeSummonTeams?.first == match.teamA && homeViewModel.activeSummonTeams?.second == match.teamB
+
                                     Text(
-                                        text = "[ CALL ]",
-                                        color = NeonGreen,
+                                        text = if (isThisActiveSummon) "[ CANCEL ]" else "[ CALL ]",
+                                        color = if (isThisActiveSummon) Color(0xFF8B2525) else NeonGreen,
                                         fontSize = 10.sp,
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.clickable {
-                                            // Pass the bracket phase name (round title) as a third element or handle it inside a callback
-                                            // Let's reuse the onLoadToDashboard with a list or format string if possible
-                                            onLoadToDashboard(listOf(match.teamA, round.title), listOf(match.teamB))
+                                            if (isThisActiveSummon) {
+                                                homeViewModel.cancelSummon()
+                                            } else if (!homeViewModel.isSummoning) {
+                                                onLoadToDashboard(listOf(match.teamA, round.title), listOf(match.teamB))
+                                            }
                                         }
                                     )
                                 }
@@ -234,7 +217,7 @@ fun BracketScreen(
                                             modifier = Modifier.padding(vertical = 4.dp)
                                         )
                                     } else {
-                                        logs.take(5).forEach { log ->
+                                        logs.take(20).forEach { log ->
                                             Text(
                                                 text = log,
                                                 color = NeonGreen.copy(alpha = 0.6f),

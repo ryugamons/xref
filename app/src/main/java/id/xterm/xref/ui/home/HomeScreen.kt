@@ -316,8 +316,8 @@ private fun RefereeSection(viewModel: HomeViewModel) {
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !viewModel.isRefereeConnecting,
-                    containerColor = if (viewModel.isRefereeConnected) Color(0xFFFF5252) else NeonGreen,
-                    contentColor = if (viewModel.isRefereeConnected) Color.Black else DarkGreen900
+                    containerColor = if (viewModel.isRefereeConnected) Color(0xFF8B2525) else NeonGreen,
+                    contentColor = if (viewModel.isRefereeConnected) Color.White else DarkGreen900
                 )
             }
 
@@ -350,8 +350,8 @@ private fun RefereeSection(viewModel: HomeViewModel) {
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !viewModel.isStarterConnecting,
-                    containerColor = if (viewModel.isStarterConnected) Color(0xFFFF5252) else NeonGreen,
-                    contentColor = if (viewModel.isStarterConnected) Color.Black else DarkGreen900
+                    containerColor = if (viewModel.isStarterConnected) Color(0xFF8B2525) else NeonGreen,
+                    contentColor = if (viewModel.isStarterConnected) Color.White else DarkGreen900
                 )
             }
         }
@@ -463,12 +463,12 @@ private fun RoomSection(viewModel: HomeViewModel, onNavigateToRooms: () -> Unit)
                                 modifier = Modifier
                                     .padding(bottom = 2.dp)
                                     .size(38.dp)
-                                    .background(Color(0x22FF5252), RoundedCornerShape(8.dp))
-                                    .border(1.dp, Color(0x44FF5252), RoundedCornerShape(8.dp))
+                                    .background(Color(0x228B2525), RoundedCornerShape(8.dp))
+                                    .border(1.dp, Color(0x448B2525), RoundedCornerShape(8.dp))
                             ) {
                                 Text(
                                     text = "×",
-                                    color = Color(0xFFFF5252),
+                                    color = Color(0xFF8B2525),
                                     fontSize = 24.sp,
                                     fontWeight = FontWeight.Light
                                 )
@@ -636,22 +636,26 @@ private fun MatchSection(
             Spacer(modifier = Modifier.height(16.dp))
 
             // DYNAMIC MATCH BUTTON
-            val buttonText = when (viewModel.matchPhase) {
-                MatchPhase.IDLE -> "OPEN REGISTRATION"
-                MatchPhase.REGISTRATION -> "START ROLL"
-                MatchPhase.ROLLING -> if (viewModel.participantRolls.size == viewModel.registeredParticipants.size) "SEED BRACKET" else "WAITING FOR ROLLS (${viewModel.participantRolls.size}/${viewModel.registeredParticipants.size})"
-                MatchPhase.BRACKET_READY -> "START BATTLE"
-                MatchPhase.IN_PROGRESS -> "BATTLE IN PROGRESS"
-                MatchPhase.FINISHED -> "TOURNAMENT FINISHED"
+            val buttonText = when {
+                viewModel.isSummoning -> "CANCEL SUMMON"
+                viewModel.matchPhase == MatchPhase.IDLE -> "OPEN REGISTRATION"
+                viewModel.matchPhase == MatchPhase.REGISTRATION -> "START ROLL"
+                viewModel.matchPhase == MatchPhase.ROLLING -> if (viewModel.participantRolls.size == viewModel.registeredParticipants.size) "SEED BRACKET" else "WAITING FOR ROLLS (${viewModel.participantRolls.size}/${viewModel.registeredParticipants.size})"
+                viewModel.matchPhase == MatchPhase.BRACKET_READY -> "WAITING FOR CALL FROM BRACKET"
+                viewModel.matchPhase == MatchPhase.IN_PROGRESS -> "BATTLE IN PROGRESS"
+                viewModel.matchPhase == MatchPhase.FINISHED -> "TOURNAMENT FINISHED"
+                else -> "OPEN REGISTRATION"
             }
             
-            val isButtonEnabled = when (viewModel.matchPhase) {
-                MatchPhase.IDLE -> viewModel.isRefereeConnected
-                MatchPhase.REGISTRATION -> viewModel.registeredParticipants.size == viewModel.bracketSize
-                MatchPhase.ROLLING -> viewModel.participantRolls.size == viewModel.registeredParticipants.size
-                MatchPhase.BRACKET_READY -> true
-                MatchPhase.IN_PROGRESS -> true // To allow manual finish if needed
-                MatchPhase.FINISHED -> true
+            val isButtonEnabled = when {
+                viewModel.isSummoning -> true
+                viewModel.matchPhase == MatchPhase.IDLE -> viewModel.isRefereeConnected
+                viewModel.matchPhase == MatchPhase.REGISTRATION -> viewModel.registeredParticipants.size == viewModel.bracketSize
+                viewModel.matchPhase == MatchPhase.ROLLING -> viewModel.participantRolls.size == viewModel.registeredParticipants.size
+                viewModel.matchPhase == MatchPhase.BRACKET_READY -> false // User must use Bracket Screen
+                viewModel.matchPhase == MatchPhase.IN_PROGRESS -> true 
+                viewModel.matchPhase == MatchPhase.FINISHED -> true
+                else -> false
             }
 
             Row(
@@ -661,15 +665,15 @@ private fun MatchSection(
                 XrefButton(
                     text = buttonText,
                     onClick = { 
+                        if (viewModel.isSummoning) {
+                            viewModel.cancelSummon()
+                            return@XrefButton
+                        }
+
                         when (viewModel.matchPhase) {
                             MatchPhase.IDLE -> viewModel.toggleMatchRegistration()
                             MatchPhase.REGISTRATION -> viewModel.startRollPhaseManually()
                             MatchPhase.ROLLING -> viewModel.seedBracketManually()
-                            MatchPhase.BRACKET_READY -> {
-                                viewModel.getFirstMatch()?.let { (a, b) ->
-                                    onLoadToDashboard(listOf(a), listOf(b))
-                                }
-                            }
                             MatchPhase.IN_PROGRESS -> viewModel.finishTournamentManually()
                             MatchPhase.FINISHED -> viewModel.toggleMatchRegistration()
                             else -> {}
@@ -678,13 +682,15 @@ private fun MatchSection(
                     modifier = Modifier.weight(1f),
                     height = 56.dp,
                     enabled = isButtonEnabled,
-                    containerColor = when (viewModel.matchPhase) {
-                        MatchPhase.REGISTRATION -> Color(0xFFFFB300)
-                        MatchPhase.ROLLING, MatchPhase.BRACKET_READY -> Color.Gray
-                        MatchPhase.IN_PROGRESS -> Color(0xFF2196F3)
+                    containerColor = when {
+                        viewModel.isSummoning -> Color(0xFF8B2525)
+                        viewModel.matchPhase == MatchPhase.REGISTRATION -> Color(0xFFFFB300)
+                        viewModel.matchPhase == MatchPhase.ROLLING -> Color.Gray
+                        viewModel.matchPhase == MatchPhase.BRACKET_READY -> DarkGreen800
+                        viewModel.matchPhase == MatchPhase.IN_PROGRESS -> Color(0xFF2196F3)
                         else -> NeonGreen
                     },
-                    contentColor = Color.Black
+                    contentColor = if (viewModel.isSummoning) Color.White else if (viewModel.matchPhase == MatchPhase.BRACKET_READY) TextDim else Color.Black
                 )
 
                 if (viewModel.matchPhase == MatchPhase.REGISTRATION && viewModel.registeredParticipants.isNotEmpty()) {
@@ -802,12 +808,12 @@ private fun MatchSection(
                                     },
                                     modifier = Modifier
                                         .size(42.dp)
-                                        .background(Color(0x22FF5252), RoundedCornerShape(8.dp))
-                                        .border(1.dp, Color(0x44FF5252), RoundedCornerShape(8.dp))
+                                        .background(Color(0x228B2525), RoundedCornerShape(8.dp))
+                                        .border(1.dp, Color(0x448B2525), RoundedCornerShape(8.dp))
                                 ) {
                                     Text(
                                         text = "×",
-                                        color = Color(0xFFFF5252),
+                                        color = Color(0xFF8B2525),
                                         fontSize = 20.sp,
                                         fontWeight = FontWeight.Bold
                                     )

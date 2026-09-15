@@ -45,6 +45,13 @@ class HomeViewModel : ViewModel() {
     var licenseInput by mutableStateOf("")
     var licenseErrorMessage by mutableStateOf<String?>(null)
 
+    // Participant Selection State
+    val roomParticipants = webSocketRepository.roomParticipants
+    val selectedTeamAIds = mutableStateListOf<String>()
+    val selectedTeamBIds = mutableStateListOf<String>()
+    var teamSelectionDialogVisible by mutableStateOf(false)
+    var currentSelectingTeamName by mutableStateOf("") // "TEAM A" or "TEAM B"
+
     // Room states
     var broadcastRoom by mutableStateOf("")
     val battleRooms = mutableStateListOf<String>()
@@ -70,6 +77,10 @@ class HomeViewModel : ViewModel() {
     val participantsWhoMustReRoll = mutableStateListOf<String>()
     
     val scheduledMatches = mutableStateMapOf<String, Pair<List<String>, List<String>>>()
+
+    var isSummoning by mutableStateOf(false)
+    var activeSummonTeams by mutableStateOf<Pair<String, String>?>(null)
+    private var summonJob: Job? = null
 
     val duplicateRolls by derivedStateOf {
         participantRolls.values
@@ -561,7 +572,9 @@ class HomeViewModel : ViewModel() {
         }
     }
     
-    fun callMatchSummon(teamA: String, teamB: String, phase: String = "MATCH"): String {
+    fun callMatchSummon(teamA: String, teamB: String, phase: String = "MATCH"): String? {
+        if (isSummoning) return null
+        
         matchPhase = MatchPhase.IN_PROGRESS
         val normalizedBroadcastRoom = broadcastRoom.lowercase()
         
@@ -584,7 +597,9 @@ class HomeViewModel : ViewModel() {
                 val message = "/me [$turneyTitle] [$phase] SUMMON: ${teamA.uppercase()} vs ${teamB.uppercase()}. ENTER ROOM ${roomToUse.uppercase()} NOW!"
                 webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
                 
-                viewModelScope.launch {
+                isSummoning = true
+                activeSummonTeams = Pair(teamA, teamB)
+                summonJob = viewModelScope.launch {
                     var remainingSeconds = 180
                     val normalizedRoomToUse = roomToUse.lowercase()
                     
@@ -600,11 +615,12 @@ class HomeViewModel : ViewModel() {
                             val currentRoom = json["room"]?.jsonPrimitive?.content?.lowercase() ?: ""
                             
                             if (currentRoom == normalizedRoomToUse) {
-                                if (type == "room.participant.added") {
+                                if (type == "room.joined") {
                                     val enteringUser = json["username"]?.jsonPrimitive?.content?.lowercase() ?: ""
                                     if (enteringUser == teamAUser) isTeamAEntered = true
                                     if (enteringUser == teamBUser) isTeamBEntered = true
-                                } else if (type == "room.joined") {
+                                    
+                                    // Also check initial participants list if present in this packet
                                     val participants = json["participants"]?.jsonArray
                                     participants?.forEach { p ->
                                         val u = p.jsonObject["username"]?.jsonPrimitive?.content?.lowercase() ?: ""
@@ -630,7 +646,6 @@ class HomeViewModel : ViewModel() {
                             
                             val interval = if (remainingSeconds > 60) 60 else 30
                             
-                            // Check frequently during the delay to exit immediately if both teams enter
                             var waited = 0
                             while (waited < interval && !(isTeamAEntered && isTeamBEntered)) {
                                 delay(1000)
@@ -639,10 +654,7 @@ class HomeViewModel : ViewModel() {
                             remainingSeconds -= interval
                         }
                         
-                        // ONLY perform DQ logic if the loop finished due to timeout (remainingSeconds <= 0)
-                        // and not all teams are present.
                         if (remainingSeconds <= 0 && !(isTeamAEntered && isTeamBEntered)) {
-                            // DQ Logic
                             val dqMessage = when {
                                 !isTeamAEntered && isTeamBEntered -> {
                                     "/me [$turneyTitle] [$phase] RESULT [10-0]: ${teamB.uppercase()} WINS vs ${teamA.uppercase()} DIS."
@@ -658,12 +670,26 @@ class HomeViewModel : ViewModel() {
                         }
                     } finally {
                         presenceCollectorJob.cancel()
+                        isSummoning = false
+                        activeSummonTeams = null
+                        summonJob = null
                     }
                 }
             }
         }
         
         return roomToUse
+    }
+
+    fun cancelSummon() {
+        summonJob?.cancel()
+        val normalizedBroadcastRoom = broadcastRoom.lowercase()
+        if (isRefereeConnected && broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
+            webSocketRepository.sendMessage(normalizedBroadcastRoom, "/me [$turneyTitle] SUMMON CANCELLED BY REFEREE.", "REFEREE")
+        }
+        isSummoning = false
+        activeSummonTeams = null
+        summonJob = null
     }
 
     fun kickoff(room: String) {
@@ -923,6 +949,28 @@ class HomeViewModel : ViewModel() {
     fun updateMultiLoginTemplate(template: String) {
         multiLoginTemplate = template
         viewModelScope.launch { AuthPreferences.saveMultiLoginTemplate(template) }
+    }
+
+    fun toggleParticipantSelection(username: String, forTeamA: Boolean) {
+        val list = if (forTeamA) selectedTeamAIds else selectedTeamBIds
+        if (list.contains(username)) {
+            list.remove(username)
+        } else {
+            list.add(username)
+        }
+    }
+
+    fun autoSelectParticipants(filter: String, forTeamA: Boolean) {
+        if (filter.length < 3) return
+        val room = selectedRoomInRoomsTab?.lowercase() ?: return
+        val participants = roomParticipants.value[room] ?: return
+        val list = if (forTeamA) selectedTeamAIds else selectedTeamBIds
+        
+        participants.forEach { u ->
+            if (u.contains(filter, ignoreCase = true) && !list.contains(u)) {
+                list.add(u)
+            }
+        }
     }
 
     fun saveTemplates(matchCall: String, readyCheck: String) {

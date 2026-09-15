@@ -90,6 +90,9 @@ class WebSocketRepository @Inject constructor() {
     private val _activeRooms = MutableStateFlow<Set<String>>(emptySet())
     val activeRooms = _activeRooms.asStateFlow()
 
+    private val _roomParticipants = MutableStateFlow<Map<String, List<String>>>(emptyMap())
+    val roomParticipants = _roomParticipants.asStateFlow()
+
     private val repositoryScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     private data class OutgoingMessage(val connectionType: String, val rawMessage: String)
@@ -267,8 +270,9 @@ class WebSocketRepository @Inject constructor() {
                         "room.joined" -> {
                             val roomName = jsonObject.get("room")?.jsonPrimitive?.contentOrNull
                             val usernameInPacket = jsonObject.get("username")?.jsonPrimitive?.contentOrNull
+                            val time = jsonObject.get("time")?.jsonPrimitive?.contentOrNull ?: ""
                             
-                            if (roomName != null) {
+                            if (roomName != null && usernameInPacket != null && connectionType == "REFEREE") {
                                 val normalizedRoomKey = roomName.lowercase()
                                 val displayRoom = roomName.uppercase()
                                 
@@ -276,35 +280,55 @@ class WebSocketRepository @Inject constructor() {
                                     _activeRooms.value = _activeRooms.value + normalizedRoomKey
                                 }
                                 
-                                // SNAPSHOT: Only show if I am the one joining
-                                if (usernameInPacket == sessionUsernames[connectionType] && connectionType == "REFEREE") {
-                                    val description = jsonObject.get("room_description")?.jsonPrimitive?.contentOrNull ?: ""
-                                    val owner = jsonObject.get("room_owner_username")?.jsonPrimitive?.contentOrNull ?: ""
-                                    val announcement = jsonObject.get("room_announcement")?.jsonPrimitive?.contentOrNull ?: ""
-                                    val participantsArray = jsonObject.get("participants")?.jsonArray
-                                    val participantsList = participantsArray?.mapNotNull { 
-                                        it.jsonObject["username"]?.jsonPrimitive?.contentOrNull 
-                                    }?.joinToString(", ") ?: ""
+                                // Maintain participant list
+                                _roomParticipants.value = _roomParticipants.value.toMutableMap().apply {
+                                    val currentList = this[normalizedRoomKey]?.toMutableList() ?: mutableListOf()
                                     
-                                    val time = jsonObject.get("time")?.jsonPrimitive?.contentOrNull ?: ""
-                                    
-                                    repositoryScope.launch {
-                                        _roomMessages.emit(normalizedRoomKey to ChatMessage(
-                                            room = displayRoom, username = "", text = description,
-                                            time = time, type = MessageType.PRESENCE, eventType = type
-                                        ))
-                                        _roomMessages.emit(normalizedRoomKey to ChatMessage(
-                                            room = displayRoom, username = "managed by", text = owner,
-                                            time = time, type = MessageType.PRESENCE, eventType = type
-                                        ))
-                                        _roomMessages.emit(normalizedRoomKey to ChatMessage(
-                                            room = displayRoom, username = "Currently in the room:", text = participantsList,
-                                            time = time, type = MessageType.PRESENCE, eventType = type
-                                        ))
-                                        if (announcement.isNotEmpty()) {
+                                    if (usernameInPacket == sessionUsernames[connectionType]) {
+                                        // Case: Current user (Referee) joined. Initialize with participant list from packet.
+                                        val participantsArray = jsonObject.get("participants")?.jsonArray
+                                        val initialUsernames = participantsArray?.mapNotNull { 
+                                            it.jsonObject["username"]?.jsonPrimitive?.contentOrNull 
+                                        } ?: emptyList()
+                                        
+                                        this[normalizedRoomKey] = initialUsernames
+                                        
+                                        // UI: Show room details snapshot
+                                        val description = jsonObject.get("room_description")?.jsonPrimitive?.contentOrNull ?: ""
+                                        val owner = jsonObject.get("room_owner_username")?.jsonPrimitive?.contentOrNull ?: ""
+                                        val announcement = jsonObject.get("room_announcement")?.jsonPrimitive?.contentOrNull ?: ""
+                                        
+                                        repositoryScope.launch {
                                             _roomMessages.emit(normalizedRoomKey to ChatMessage(
-                                                room = "", username = "", text = "<< $announcement >>",
+                                                room = displayRoom, username = "", text = description,
                                                 time = time, type = MessageType.PRESENCE, eventType = type
+                                            ))
+                                            _roomMessages.emit(normalizedRoomKey to ChatMessage(
+                                                room = displayRoom, username = "managed by", text = owner,
+                                                time = time, type = MessageType.PRESENCE, eventType = type
+                                            ))
+                                            if (announcement.isNotEmpty()) {
+                                                _roomMessages.emit(normalizedRoomKey to ChatMessage(
+                                                    room = "", username = "", text = "<< $announcement >>",
+                                                    time = time, type = MessageType.PRESENCE, eventType = type
+                                                ))
+                                            }
+                                        }
+                                    } else {
+                                        // Case: Other user entered
+                                        if (!currentList.contains(usernameInPacket)) {
+                                            currentList.add(usernameInPacket)
+                                            this[normalizedRoomKey] = currentList
+                                        }
+                                        
+                                        repositoryScope.launch {
+                                            _roomMessages.emit(normalizedRoomKey to ChatMessage(
+                                                room = displayRoom,
+                                                username = usernameInPacket,
+                                                text = "has entered",
+                                                time = time,
+                                                type = MessageType.PRESENCE,
+                                                eventType = type
                                             ))
                                         }
                                     }
@@ -314,43 +338,36 @@ class WebSocketRepository @Inject constructor() {
                         "room.left" -> {
                             val roomName = jsonObject.get("room")?.jsonPrimitive?.contentOrNull
                             val usernameInPacket = jsonObject.get("username")?.jsonPrimitive?.contentOrNull
-                            if (roomName != null && usernameInPacket == sessionUsernames[connectionType]) {
-                                _activeRooms.value = _activeRooms.value - roomName.lowercase()
-                            }
-                        }
-                        "room.participant.added" -> {
-                            val roomName = jsonObject.get("room")?.jsonPrimitive?.contentOrNull ?: ""
-                            val username = jsonObject.get("username")?.jsonPrimitive?.contentOrNull ?: ""
                             val time = jsonObject.get("time")?.jsonPrimitive?.contentOrNull ?: ""
-                            
-                            if (username.isNotEmpty() && username != sessionUsernames[connectionType] && connectionType == "REFEREE") {
-                                repositoryScope.launch {
-                                    _roomMessages.emit(roomName.lowercase() to ChatMessage(
-                                        room = roomName.uppercase(),
-                                        username = username,
-                                        text = "has entered",
-                                        time = time,
-                                        type = MessageType.PRESENCE,
-                                        eventType = type
-                                    ))
+
+                            if (roomName != null && usernameInPacket != null && connectionType == "REFEREE") {
+                                val normalizedRoomKey = roomName.lowercase()
+                                
+                                // Update active rooms if it's the current user
+                                if (usernameInPacket == sessionUsernames[connectionType]) {
+                                    _activeRooms.value = _activeRooms.value - normalizedRoomKey
                                 }
-                            }
-                        }
-                        "room.participant.removed" -> {
-                            val roomName = jsonObject.get("room")?.jsonPrimitive?.contentOrNull ?: ""
-                            val username = jsonObject.get("username")?.jsonPrimitive?.contentOrNull ?: ""
-                            val time = jsonObject.get("time")?.jsonPrimitive?.contentOrNull ?: ""
-                            
-                            if (username.isNotEmpty() && username != sessionUsernames[connectionType] && connectionType == "REFEREE") {
-                                repositoryScope.launch {
-                                    _roomMessages.emit(roomName.lowercase() to ChatMessage(
-                                        room = roomName.uppercase(),
-                                        username = username,
-                                        text = "has left",
-                                        time = time,
-                                        type = MessageType.PRESENCE,
-                                        eventType = type
-                                    ))
+                                
+                                // Update participant list
+                                _roomParticipants.value = _roomParticipants.value.toMutableMap().apply {
+                                    val currentList = this[normalizedRoomKey]?.toMutableList() ?: mutableListOf()
+                                    if (currentList.remove(usernameInPacket)) {
+                                        this[normalizedRoomKey] = currentList
+                                    }
+                                }
+                                
+                                // Emit "has left" message for others
+                                if (usernameInPacket != sessionUsernames[connectionType]) {
+                                    repositoryScope.launch {
+                                        _roomMessages.emit(normalizedRoomKey to ChatMessage(
+                                            room = roomName.uppercase(),
+                                            username = usernameInPacket,
+                                            text = "has left",
+                                            time = time,
+                                            type = MessageType.PRESENCE,
+                                            eventType = type
+                                        ))
+                                    }
                                 }
                             }
                         }
