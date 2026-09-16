@@ -67,6 +67,9 @@ class MatchSession(
     
     private var isGoalSent = false
     private var endReason: String = ""
+    
+    private var scoreSnapshotA = 0
+    private var scoreSnapshotB = 0
 
     fun start(phase: String, nameA: String, teamAIds: List<String>, nameB: String, teamBIds: List<String>) {
         currentPhase = phase
@@ -78,6 +81,8 @@ class MatchSession(
         isGoalSent = false
         endReason = ""
         battleStartTime = 0L
+        scoreSnapshotA = 0
+        scoreSnapshotB = 0
         Log.d("XREF_MATCH", "Match Session Initialized in $room: $nameA vs $nameB")
     }
 
@@ -120,14 +125,18 @@ class MatchSession(
         // 2. Goal confirmation
         if (body.contains("GOALLLLLLLLLL", ignoreCase = true)) {
             if (_state.value == MatchState.Battle || _state.value == MatchState.Ending) {
+                // Snapshot the OFFICIAL score exactly at the moment of GOAL
+                scoreSnapshotA = _teamA.value.participants.count { !it.isKicked }
+                scoreSnapshotB = _teamB.value.participants.count { !it.isKicked }
+                
                 _state.value = MatchState.Ended
                 calculateAndBroadcastResults()
             }
             return
         }
 
-        // 3. Battle Logic
-        if (_state.value != MatchState.Battle) return
+        // 3. Battle Logic (Keep logging kicks even during Ending/Ended phase for evidence until broadcast)
+        if (_state.value == MatchState.Idle || _state.value == MatchState.Kickoff) return
 
         // Detect Vote
         if (body.contains("A vote to kick", ignoreCase = true) && body.contains("started by", ignoreCase = true)) {
@@ -230,14 +239,13 @@ class MatchSession(
             
             val sideA = _teamA.value
             val sideB = _teamB.value
-            val remainingA = sideA.participants.count { !it.isKicked }
-            val remainingB = sideB.participants.count { !it.isKicked }
             
             val isSuspendA = endReason.contains("SUSPEND (A)")
             val isSuspendB = endReason.contains("SUSPEND (B)")
             
-            val finalA = if (isSuspendA) 0 else remainingA
-            val finalB = if (isSuspendB) 0 else remainingB
+            // Use snapshot for the official final scores (frozen at the moment of GOAL)
+            val finalA = if (isSuspendA) 0 else scoreSnapshotA
+            val finalB = if (isSuspendB) 0 else scoreSnapshotB
             
             val winnerName = when {
                 isSuspendA -> sideB.name
@@ -254,7 +262,7 @@ class MatchSession(
             val winnerPart = if (winnerName != "DRAW") "\nWinner: ${winnerName.uppercase()}" else "\nRESULT: DRAW"
             
             // Battle Room Message
-            val resultMsg = "/me [BATTLE RESULT]\n$resultSummary.$winnerPart\nCongrats!! Please leave the room"
+            val resultMsg = "/me [BATTLE RESULT]\n$resultSummary$winnerPart\nCongrats!! Please leave the room"
             webSocketRepository.sendMessage(room, resultMsg, "REFEREE")
             
             // Notification for main broadcast
@@ -288,6 +296,7 @@ class MatchManager @Inject constructor(
     val activeSessions = _activeSessions.asStateFlow()
     
     var mainBroadcastRoom: String = ""
+    var onMatchFinished: ((String) -> Unit)? = null
 
     init {
         scope.launch {
@@ -315,6 +324,8 @@ class MatchManager @Inject constructor(
         val session = sessions.getOrPut(normalizedRoom) { 
             MatchSession(normalizedRoom, webSocketRepository) { r, ph, nA, nB, summary, susp ->
                 broadcastToMain(r, ph, nA, nB, summary, susp)
+                onMatchFinished?.invoke(r)
+                stopMatch(r)
             }
         }
         session.start(phase, nameA, teamAIds, nameB, teamBIds)

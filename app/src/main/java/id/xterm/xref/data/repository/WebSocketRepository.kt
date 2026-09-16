@@ -63,6 +63,7 @@ class WebSocketRepository @Inject constructor() {
     
     private val webSocketClients = ConcurrentHashMap<String, WebSocketClient>()
     private val pingJobs = ConcurrentHashMap<String, Job>()
+    private val tokenRefreshJobs = ConcurrentHashMap<String, Job>()
     private val packetIds = ConcurrentHashMap<String, AtomicInteger>()
     private val sessionUsernames = ConcurrentHashMap<String, String>()
     
@@ -116,7 +117,7 @@ class WebSocketRepository @Inject constructor() {
         repositoryScope.launch {
             for (msg in outgoingChannel) {
                 webSocketClients[msg.connectionType]?.send(msg.rawMessage)
-                delay(10)
+                delay(400) // Rate limit for normal text as per production server rules
             }
         }
     }
@@ -340,12 +341,14 @@ class WebSocketRepository @Inject constructor() {
             override fun onOpen() {
                 stateFlow.value = ConnectionState.Connected
                 startPingScheduler(connectionType)
+                startTokenRefreshScheduler(connectionType)
             }
             override fun onMessage(raw: String, jsonObject: JsonObject?) {
                 if (jsonObject != null) { incomingChannel.trySend(connectionType to jsonObject) }
             }
             override fun onError(error: String) {
                 stopPingScheduler(connectionType)
+                stopTokenRefreshScheduler(connectionType)
                 webSocketClients.remove(connectionType)
                 packetIds.remove(connectionType)
                 sessionUsernames.remove(connectionType)
@@ -353,6 +356,7 @@ class WebSocketRepository @Inject constructor() {
             }
             override fun onClosed(reason: String) {
                 stopPingScheduler(connectionType)
+                stopTokenRefreshScheduler(connectionType)
                 webSocketClients.remove(connectionType)
                 packetIds.remove(connectionType)
                 sessionUsernames.remove(connectionType)
@@ -377,6 +381,23 @@ class WebSocketRepository @Inject constructor() {
     private fun stopPingScheduler(connectionType: String) {
         pingJobs[connectionType]?.cancel()
         pingJobs.remove(connectionType)
+    }
+
+    private fun startTokenRefreshScheduler(connectionType: String) {
+        stopTokenRefreshScheduler(connectionType)
+        val job = repositoryScope.launch {
+            while (isActive) {
+                delay(800_000) // Refresh every 800 seconds
+                Log.d("XREF_WS", "Scheduled token refresh for $connectionType")
+                refreshTokens(connectionType)
+            }
+        }
+        tokenRefreshJobs[connectionType] = job
+    }
+
+    private fun stopTokenRefreshScheduler(connectionType: String) {
+        tokenRefreshJobs[connectionType]?.cancel()
+        tokenRefreshJobs.remove(connectionType)
     }
 
     fun joinRoom(room: String, connectionType: String) {
@@ -404,6 +425,7 @@ class WebSocketRepository @Inject constructor() {
 
     fun disconnectSession(connectionType: String) {
         stopPingScheduler(connectionType)
+        stopTokenRefreshScheduler(connectionType)
         webSocketClients[connectionType]?.disconnect()
         webSocketClients.remove(connectionType)
         packetIds.remove(connectionType)

@@ -58,7 +58,14 @@ fun MainScreen(
         BottomTab.entries.size
     }
     val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     var splashElapsed by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(homeViewModel.snackbarMessage) {
+        homeViewModel.snackbarMessage.collect { message ->
+            snackbarHostState.showSnackbar(message)
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (!splashElapsed) {
@@ -106,7 +113,7 @@ fun MainScreen(
             text = {
                 Text(
                     text = "App Name: XREF\n" +
-                            "Version: 1.0.1\n" +
+                            "Version: 1.02\n" +
                             "Creator: HEX\n\n" +
                             "Description: A professional broadcasting and starter tool for mig33 kick tournaments. Features include real-time match monitoring, tournament brackets, and automated 10vs10 match logic.",
                     color = NeonGreen
@@ -157,6 +164,7 @@ fun MainScreen(
                 }
             }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             val selectedIndex = pagerState.currentPage
             val isKeyboardVisible = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 0.dp
@@ -222,27 +230,10 @@ fun MainScreen(
                             coroutineScope.launch {
                                 pagerState.animateScrollToPage(BottomTab.entries.indexOf(BottomTab.Room))
                             }
-                        },
-                        onLoadToDashboard = { teamA, teamB ->
-                            if (teamA.isNotEmpty() && teamB.isNotEmpty()) {
-                                homeViewModel.callMatchSummon(teamA[0], teamB[0])
-                                coroutineScope.launch {
-                                    pagerState.animateScrollToPage(BottomTab.entries.indexOf(BottomTab.Room))
-                                }
-                            }
                         }
                     )
                     BottomTab.Bracket -> BracketScreen(
-                        homeViewModel = homeViewModel,
-                        onLoadToDashboard = { teamA, teamB ->
-                            if (teamA.isNotEmpty() && teamB.isNotEmpty()) {
-                                val bracketPhase = teamA.getOrNull(1) ?: "MATCH"
-                                homeViewModel.callMatchSummon(teamA[0], teamB[0], bracketPhase)
-                                coroutineScope.launch {
-                                    pagerState.animateScrollToPage(BottomTab.entries.indexOf(BottomTab.Room))
-                                }
-                            }
-                        }
+                        homeViewModel = homeViewModel
                     )
                     BottomTab.Room -> RoomScreen(homeViewModel)
                 }

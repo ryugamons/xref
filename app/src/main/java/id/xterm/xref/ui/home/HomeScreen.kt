@@ -680,22 +680,20 @@ private fun MatchSection(
 
             // DYNAMIC MATCH BUTTON
             val buttonText = when {
-                viewModel.isSummoning -> "CANCEL SUMMON"
                 viewModel.matchPhase == MatchPhase.IDLE -> "OPEN REGISTRATION"
                 viewModel.matchPhase == MatchPhase.REGISTRATION -> "START ROLL"
                 viewModel.matchPhase == MatchPhase.ROLLING -> if (viewModel.participantRolls.size == viewModel.registeredParticipants.size) "SEED BRACKET" else "WAITING FOR ROLLS (${viewModel.participantRolls.size}/${viewModel.registeredParticipants.size})"
-                viewModel.matchPhase == MatchPhase.BRACKET_READY -> "WAITING FOR CALL FROM BRACKET"
+                viewModel.matchPhase == MatchPhase.BRACKET_READY -> "TOURNAMENT IN PROGRESS"
                 viewModel.matchPhase == MatchPhase.IN_PROGRESS -> "BATTLE IN PROGRESS"
                 viewModel.matchPhase == MatchPhase.FINISHED -> "TOURNAMENT FINISHED"
                 else -> "OPEN REGISTRATION"
             }
             
             val isButtonEnabled = when {
-                viewModel.isSummoning -> true
                 viewModel.matchPhase == MatchPhase.IDLE -> viewModel.isRefereeConnected
                 viewModel.matchPhase == MatchPhase.REGISTRATION -> viewModel.registeredParticipants.size == viewModel.bracketSize
                 viewModel.matchPhase == MatchPhase.ROLLING -> viewModel.participantRolls.size == viewModel.registeredParticipants.size
-                viewModel.matchPhase == MatchPhase.BRACKET_READY -> false // User must use Bracket Screen
+                viewModel.matchPhase == MatchPhase.BRACKET_READY -> false 
                 viewModel.matchPhase == MatchPhase.IN_PROGRESS -> true 
                 viewModel.matchPhase == MatchPhase.FINISHED -> true
                 else -> false
@@ -708,11 +706,6 @@ private fun MatchSection(
                 XrefButton(
                     text = buttonText,
                     onClick = { 
-                        if (viewModel.isSummoning) {
-                            viewModel.cancelSummon()
-                            return@XrefButton
-                        }
-
                         when (viewModel.matchPhase) {
                             MatchPhase.IDLE -> viewModel.toggleMatchRegistration()
                             MatchPhase.REGISTRATION -> viewModel.startRollPhaseManually()
@@ -726,14 +719,13 @@ private fun MatchSection(
                     height = 56.dp,
                     enabled = isButtonEnabled,
                     containerColor = when {
-                        viewModel.isSummoning -> RedPucat
                         viewModel.matchPhase == MatchPhase.REGISTRATION -> Color(0xFFFFB300)
                         viewModel.matchPhase == MatchPhase.ROLLING -> Color.Gray
                         viewModel.matchPhase == MatchPhase.BRACKET_READY -> DarkGreen800
                         viewModel.matchPhase == MatchPhase.IN_PROGRESS -> Color(0xFF2196F3)
                         else -> NeonGreen
                     },
-                    contentColor = if (viewModel.isSummoning) Color.White else if (viewModel.matchPhase == MatchPhase.BRACKET_READY) TextDim else Color.Black
+                    contentColor = if (viewModel.matchPhase == MatchPhase.BRACKET_READY) TextDim else Color.Black
                 )
 
                 if (viewModel.matchPhase == MatchPhase.REGISTRATION && viewModel.registeredParticipants.isNotEmpty()) {

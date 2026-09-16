@@ -40,8 +40,7 @@ import id.xterm.xref.ui.theme.TextDim
 
 @Composable
 fun BracketScreen(
-    homeViewModel: HomeViewModel = viewModel(),
-    onLoadToDashboard: (teamA: List<String>, teamB: List<String>) -> Unit = { _, _ -> }
+    homeViewModel: HomeViewModel = viewModel()
 ) {
     val totalSlots = homeViewModel.bracketSize
     val participants = remember(homeViewModel.registeredParticipants.toList(), totalSlots) {
@@ -130,24 +129,14 @@ fun BracketScreen(
                 fontFamily = FontFamily.Monospace
             )
             
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                XrefButton(
-                    text = "UPDATE",
-                    onClick = { bracketVersion++ },
-                    modifier = Modifier.width(62.dp),
-                    height = 28.dp,
-                    fontSize = 8.sp,
-                    contentPadding = PaddingValues(0.dp)
-                )
-                XrefButton(
-                    text = "BROADCAST",
-                    onClick = { homeViewModel.broadcastManualBracket(rounds) },
-                    modifier = Modifier.width(82.dp),
-                    height = 28.dp,
-                    fontSize = 8.sp,
-                    contentPadding = PaddingValues(0.dp)
-                )
-            }
+            XrefButton(
+                text = "UPDATE",
+                onClick = { bracketVersion++ },
+                modifier = Modifier.width(62.dp),
+                height = 28.dp,
+                fontSize = 8.sp,
+                contentPadding = PaddingValues(0.dp)
+            )
         }
 
         LazyColumn(
@@ -156,14 +145,30 @@ fun BracketScreen(
         ) {
             rounds.forEach { round ->
                 item {
-                    Text(
-                        text = "[ ${round.title} ]",
-                        color = NeonGreen.copy(alpha = 0.6f),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(vertical = 2.dp)
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "[ ${round.title} ]",
+                            color = NeonGreen.copy(alpha = 0.6f),
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        Text(
+                            text = "[ BROADCAST PHASE ]",
+                            color = NeonGreen,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clickable { homeViewModel.broadcastManualRound(round) }
+                                .padding(4.dp)
+                        )
+                    }
                 }
                 itemsIndexed(round.matches) { matchIndex, match ->
                     val matchKey = "${round.title}_$matchIndex"
@@ -234,33 +239,6 @@ fun BracketScreen(
                                         modifier = Modifier.padding(horizontal = 4.dp)
                                     )
                                 }
-
-                                // CALL/CANCEL Button
-                                val isThisActiveSummon = homeViewModel.activeSummonTeams?.first == match.teamA && homeViewModel.activeSummonTeams?.second == match.teamB
-                                val hasManualScore = scoreAInput.isNotEmpty() && scoreAInput != "-" && 
-                                                   scoreBInput.isNotEmpty() && scoreBInput != "-"
-
-                                XrefButton(
-                                    text = if (isThisActiveSummon) "CANCEL" else "CALL",
-                                    onClick = {
-                                        if (isThisActiveSummon) {
-                                            homeViewModel.cancelSummon()
-                                        } else if (!homeViewModel.isSummoning) {
-                                            onLoadToDashboard(listOf(match.teamA, round.title), listOf(match.teamB))
-                                        }
-                                    },
-                                    modifier = Modifier.width(64.dp).padding(start = 4.dp),
-                                    height = 32.dp,
-                                    fontSize = 10.sp,
-                                    enabled = isThisActiveSummon || (!homeViewModel.isSummoning && !hasManualScore),
-                                    containerColor = when {
-                                        isThisActiveSummon -> RedPucat
-                                        hasManualScore -> DarkGreen800
-                                        else -> NeonGreen
-                                    },
-                                    contentColor = if (isThisActiveSummon) Color.White else if (hasManualScore) TextDim else Color.Black,
-                                    contentPadding = PaddingValues(0.dp)
-                                )
                             }
 
                             if (expanded) {

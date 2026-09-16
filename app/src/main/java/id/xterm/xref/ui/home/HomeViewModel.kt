@@ -1,6 +1,7 @@
 package id.xterm.xref.ui.home
 
 import android.util.Base64
+import android.util.Log
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -23,6 +24,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.receiveAsFlow
 
 enum class MatchPhase {
     IDLE, REGISTRATION, ROLLING, BRACKET_READY, IN_PROGRESS, FINISHED
@@ -56,9 +59,10 @@ class HomeViewModel : ViewModel() {
 
     // Participant Selection State
     val roomParticipants = webSocketRepository.roomParticipants
-    val selectedTeamAIds = mutableStateListOf<String>()
-    val selectedTeamBIds = mutableStateListOf<String>()
+    val selectedIdsA = mutableStateMapOf<String, SnapshotStateList<String>>()
+    val selectedIdsB = mutableStateMapOf<String, SnapshotStateList<String>>()
     var teamSelectionDialogVisible by mutableStateOf(false)
+    var matchSelectionDialogVisible by mutableStateOf(false)
     var currentSelectingTeamName by mutableStateOf("") // "TEAM A" or "TEAM B"
 
     // Room states
@@ -90,9 +94,7 @@ class HomeViewModel : ViewModel() {
     // Bracket State
     val bracketScores = mutableStateMapOf<String, Pair<String, String>>() // Key: "RoundName_MatchIndex", Value: (ScoreA, ScoreB)
 
-    var isSummoning by mutableStateOf(false)
-    var activeSummonTeams by mutableStateOf<Pair<String, String>?>(null)
-    private var summonJob: Job? = null
+    val summonJobs = mutableStateMapOf<String, Job>()
 
     val duplicateRolls by derivedStateOf {
         participantRolls.values
@@ -126,7 +128,17 @@ class HomeViewModel : ViewModel() {
     var transferTargetId by mutableStateOf("")
     var transferAmountCr by mutableStateOf("")
 
+    private val _snackbarMessage = Channel<String>(Channel.CONFLATED)
+    val snackbarMessage = _snackbarMessage.receiveAsFlow()
+
     init {
+        matchManager.onMatchFinished = { room ->
+            val normalizedRoom = room.lowercase()
+            scheduledMatches.remove(normalizedRoom)
+            selectedIdsA.remove(normalizedRoom)
+            selectedIdsB.remove(normalizedRoom)
+        }
+
         viewModelScope.launch {
             refereeId = AuthPreferences.getRefereeId()
             refereePassword = AuthPreferences.getRefereePassword()
@@ -423,7 +435,7 @@ class HomeViewModel : ViewModel() {
                                         "REFEREE"
                                     )
                                     webSocketRepository.sendTransfer(participant, feeMilliCr, walletPin, "REFEREE")
-                                    delay(10)
+                                    delay(450) // Safe delay for API calls to prevent flooding
                                 }
                             }
                         }
@@ -441,6 +453,10 @@ class HomeViewModel : ViewModel() {
         participantRolls.clear()
         participantsWhoMustReRoll.clear()
         scheduledMatches.clear()
+        summonJobs.values.forEach { it.cancel() }
+        summonJobs.clear()
+        selectedIdsA.clear()
+        selectedIdsB.clear()
         matchPhase = MatchPhase.IDLE
     }
     
@@ -522,6 +538,60 @@ class HomeViewModel : ViewModel() {
         }
     }
 
+    fun getAvailableMatchesFromBracket(): List<Pair<MatchData, String>> {
+        val totalSlots = bracketSize
+        val participants = registeredParticipants.toList()
+        val bracketScores = this.bracketScores
+
+        // Re-calculate bracket to find current state
+        var currentNames = participants.toList()
+        val allRoundNames = listOf("ROUND OF 64", "ROUND OF 32", "ROUND OF 16", "QUARTER-FINALS", "SEMI-FINALS", "FINAL")
+        val startRoundIdx = when (totalSlots) {
+            64 -> 0; 32 -> 1; 16 -> 2; 8 -> 3; 4 -> 4; 2 -> 5; else -> 5
+        }
+        val roundNames = allRoundNames.drop(startRoundIdx)
+        var roundSize = totalSlots / 2
+        var roundIdx = 0
+        
+        val available = mutableListOf<Pair<MatchData, String>>()
+        val currentlyScheduled = scheduledMatches.values.map { it.nameA to it.nameB }
+        val activeSessions = matchManager.activeSessions.value.mapNotNull { matchManager.getSession(it) }
+            .map { it.teamA.value.name to it.teamB.value.name }
+
+        while (roundSize >= 1 && roundIdx < roundNames.size) {
+            val title = roundNames[roundIdx]
+            val matches = (0 until roundSize).map { i ->
+                MatchData(
+                    currentNames.getOrElse(i * 2) { "T${i * 2 + 1}" },
+                    currentNames.getOrElse(i * 2 + 1) { "T${i * 2 + 2}" }
+                )
+            }
+            
+            matches.forEachIndexed { i, match ->
+                val score = bracketScores["${title}_$i"]
+                val hasScore = score != null && score.first != "-" && score.second != "-"
+                val isScheduled = currentlyScheduled.any { it.first == match.teamA && it.second == match.teamB }
+                val isRunning = activeSessions.any { it.first == match.teamA && it.second == match.teamB }
+                
+                if (!hasScore && !isScheduled && !isRunning && !match.teamA.startsWith("WINNER") && !match.teamB.startsWith("WINNER") && !match.teamA.startsWith("EMPTY") && !match.teamB.startsWith("EMPTY")) {
+                    available.add(match to title)
+                }
+            }
+
+            currentNames = matches.indices.map { i ->
+                val score = bracketScores["${title}_$i"]
+                val sA = score?.first?.toIntOrNull() ?: -1
+                val sB = score?.second?.toIntOrNull() ?: -1
+                if (sA > sB) matches[i].teamA 
+                else if (sB > sA) matches[i].teamB 
+                else "WINNER ${title}-${i + 1}"
+            }
+            roundSize /= 2
+            roundIdx++
+        }
+        return available
+    }
+
     private fun checkRollsComplete() {
         if (matchPhase == MatchPhase.ROLLING && 
             participantRolls.size >= registeredParticipants.size && 
@@ -571,59 +641,44 @@ class HomeViewModel : ViewModel() {
         
         registeredParticipants.clear()
         registeredParticipants.addAll(newList)
-        // Auto broadcast removed as per user request for manual review
     }
 
-    fun broadcastManualBracket(rounds: List<RoundData>) {
+    fun broadcastManualRound(round: RoundData) {
         val normalizedBroadcastRoom = broadcastRoom.lowercase()
         if (!isRefereeConnected || broadcastRoom.isEmpty() || !activeRooms.value.contains(normalizedBroadcastRoom)) return
 
         viewModelScope.launch {
-            rounds.forEach { round ->
-                val pairs = round.matches.map { "${it.teamA.uppercase()} vs ${it.teamB.uppercase()}" }
-                if (pairs.isNotEmpty()) {
-                    val message = "/me [$turneyTitle] [${round.title}] BRACKET: ${pairs.joinToString(" | ")}"
-                    webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
-                    delay(500) // Small delay between rounds to avoid flood
-                }
+            val pairs = round.matches.map { "${it.teamA.uppercase()} vs ${it.teamB.uppercase()}" }
+            if (pairs.isNotEmpty()) {
+                val message = "/me [$turneyTitle] [${round.title}] BRACKET: ${pairs.joinToString(" | ")}"
+                webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
             }
         }
     }
     
-    fun callMatchSummon(teamA: String, teamB: String, phase: String = "MATCH"): String? {
-        if (isSummoning) return null
-        
-        matchPhase = MatchPhase.IN_PROGRESS
+    fun callMatchSummon(room: String, teamA: String, teamB: String, phase: String = "MATCH") {
+        val normalizedRoom = room.lowercase()
         val normalizedBroadcastRoom = broadcastRoom.lowercase()
         
-        val matchesInProgress = matchManager.activeSessions.value.map { it.lowercase() }
+        if (scheduledMatches.containsKey(normalizedRoom)) return
 
-        val roomToUse = battleRooms.firstOrNull { 
-            it.isNotEmpty() && 
-            it.lowercase() != normalizedBroadcastRoom &&
-            !matchesInProgress.contains(it.lowercase())
-        } ?: battleRooms.firstOrNull { it.isNotEmpty() } ?: "arena"
-
-        scheduledMatches[roomToUse.lowercase()] = ScheduledMatch(teamA, teamB, phase)
+        matchPhase = MatchPhase.IN_PROGRESS
+        scheduledMatches[normalizedRoom] = ScheduledMatch(teamA, teamB, phase)
 
         if (isRefereeConnected) {
-            if (!activeRooms.value.contains(roomToUse.lowercase())) {
-                webSocketRepository.joinRoom(roomToUse, "REFEREE")
+            if (!activeRooms.value.contains(normalizedRoom)) {
+                webSocketRepository.joinRoom(normalizedRoom, "REFEREE")
             }
             
             if (broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
                 val message = "/me [$turneyTitle] [$phase] [PREPARE] ${teamA.uppercase()} vs ${teamB.uppercase()}!"
                 webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
                 
-                isSummoning = true
-                activeSummonTeams = Pair(teamA, teamB)
-                summonJob = viewModelScope.launch {
+                val job = viewModelScope.launch {
                     // 1-minute Preparation Period
                     delay(60000)
 
                     var remainingSeconds = 180
-                    val normalizedRoomToUse = roomToUse.lowercase()
-                    
                     val teamAUser = teamA.lowercase()
                     val teamBUser = teamB.lowercase()
                     
@@ -635,13 +690,12 @@ class HomeViewModel : ViewModel() {
                             val type = json["type"]?.jsonPrimitive?.content ?: ""
                             val currentRoom = json["room"]?.jsonPrimitive?.content?.lowercase() ?: ""
                             
-                            if (currentRoom == normalizedRoomToUse) {
+                            if (currentRoom == normalizedRoom) {
                                 if (type == "room.joined") {
                                     val enteringUser = json["username"]?.jsonPrimitive?.content?.lowercase() ?: ""
                                     if (enteringUser == teamAUser) isTeamAEntered = true
                                     if (enteringUser == teamBUser) isTeamBEntered = true
                                     
-                                    // Also check initial participants list if present in this packet
                                     val participants = json["participants"]?.jsonArray
                                     participants?.forEach { p ->
                                         val u = p.jsonObject["username"]?.jsonPrimitive?.content?.lowercase() ?: ""
@@ -662,7 +716,7 @@ class HomeViewModel : ViewModel() {
                             val min = remainingSeconds / 60
                             val sec = remainingSeconds % 60
                             val timeStr = "%02d:%02d".format(min, sec) + "m"
-                            val countdownMessage = "/me [$turneyTitle] [$phase]\n${teamA.uppercase()} VS ${teamB.uppercase()}\n[$timeStr remaining] ENTER [${roomToUse.uppercase()}] NOW!"
+                            val countdownMessage = "/me [$turneyTitle] [$phase]\n${teamA.uppercase()} VS ${teamB.uppercase()}\n[$timeStr remaining] ENTER [${room.uppercase()}] NOW!"
                             webSocketRepository.sendMessage(normalizedBroadcastRoom, countdownMessage, "REFEREE")
                             
                             val interval = if (remainingSeconds > 60) 60 else 30
@@ -688,29 +742,46 @@ class HomeViewModel : ViewModel() {
                                 }
                             }
                             webSocketRepository.sendMessage(normalizedBroadcastRoom, dqMessage, "REFEREE")
+                            scheduledMatches.remove(normalizedRoom)
+                            selectedIdsA.remove(normalizedRoom)
+                            selectedIdsB.remove(normalizedRoom)
                         }
                     } finally {
                         presenceCollectorJob.cancel()
-                        isSummoning = false
-                        activeSummonTeams = null
-                        summonJob = null
+                        summonJobs.remove(normalizedRoom)
                     }
                 }
+                summonJobs[normalizedRoom] = job
             }
         }
-        
-        return roomToUse
     }
 
-    fun cancelSummon() {
-        summonJob?.cancel()
+    fun cancelSummon(room: String) {
+        val normalizedRoom = room.lowercase()
+        summonJobs[normalizedRoom]?.cancel()
+        summonJobs.remove(normalizedRoom)
+        
         val normalizedBroadcastRoom = broadcastRoom.lowercase()
         if (isRefereeConnected && broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
             webSocketRepository.sendMessage(normalizedBroadcastRoom, "/me [$turneyTitle] SUMMON CANCELLED BY REFEREE.", "REFEREE")
         }
-        isSummoning = false
-        activeSummonTeams = null
-        summonJob = null
+        
+        scheduledMatches.remove(normalizedRoom)
+        selectedIdsA.remove(normalizedRoom)
+        selectedIdsB.remove(normalizedRoom)
+    }
+
+    fun abortMatch(room: String) {
+        val normalizedRoom = room.lowercase()
+        matchManager.stopMatch(normalizedRoom)
+        scheduledMatches.remove(normalizedRoom)
+        selectedIdsA.remove(normalizedRoom)
+        selectedIdsB.remove(normalizedRoom)
+        
+        val normalizedBroadcastRoom = broadcastRoom.lowercase()
+        if (isRefereeConnected && broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
+            webSocketRepository.sendMessage(normalizedBroadcastRoom, "/me [$turneyTitle] MATCH IN ${room.uppercase()} ABORTED BY REFEREE.", "REFEREE")
+        }
     }
 
     fun kickoff(room: String) {
@@ -726,13 +797,13 @@ class HomeViewModel : ViewModel() {
                 val nameB = scheduled?.nameB ?: "TEAM B"
                 val phase = scheduled?.phase ?: "MATCH"
 
-                val idsA = selectedTeamAIds.toList()
-                val idsB = selectedTeamBIds.toList()
+                val idsA = selectedIdsA[normalizedRoom]?.toList() ?: emptyList<String>()
+                val idsB = selectedIdsB[normalizedRoom]?.toList() ?: emptyList<String>()
                 
                 matchManager.startMatch(normalizedRoom, phase, nameA, idsA, nameB, idsB)
                 
-                selectedTeamAIds.clear()
-                selectedTeamBIds.clear()
+                selectedIdsA.remove(normalizedRoom)
+                selectedIdsB.remove(normalizedRoom)
 
                 if (isAutoLeaveStarterEnabled) {
                     delay(1000)
@@ -854,9 +925,18 @@ class HomeViewModel : ViewModel() {
                 connectionType = "REFEREE"
             )
             if (success) {
+                showSnackbar("TRANSFER SUCCESS: $amount CR to $transferTargetId")
                 transferAmountCr = ""
                 transferTargetId = ""
+            } else {
+                showSnackbar("TRANSFER FAILED. CHECK LOGS/BALANCE.")
             }
+        }
+    }
+
+    fun showSnackbar(message: String) {
+        viewModelScope.launch {
+            _snackbarMessage.send(message)
         }
     }
 
@@ -1014,8 +1094,9 @@ class HomeViewModel : ViewModel() {
         bracketScores["${roundName}_$matchIndex"] = Pair(scoreA, scoreB)
     }
 
-    fun toggleParticipantSelection(username: String, forTeamA: Boolean) {
-        val list = if (forTeamA) selectedTeamAIds else selectedTeamBIds
+    fun toggleParticipantSelection(username: String, room: String, forTeamA: Boolean) {
+        val map = if (forTeamA) selectedIdsA else selectedIdsB
+        val list = map.getOrPut(room.lowercase()) { mutableStateListOf() }
         if (list.contains(username)) {
             list.remove(username)
         } else {
@@ -1023,11 +1104,12 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    fun autoSelectParticipants(filter: String, forTeamA: Boolean) {
+    fun autoSelectParticipants(filter: String, room: String, forTeamA: Boolean) {
         if (filter.length < 3) return
-        val room = selectedRoomInRoomsTab?.lowercase() ?: return
-        val participants = roomParticipants.value[room] ?: return
-        val list = if (forTeamA) selectedTeamAIds else selectedTeamBIds
+        val normalizedRoom = room.lowercase()
+        val participants = roomParticipants.value[normalizedRoom] ?: return
+        val map = if (forTeamA) selectedIdsA else selectedIdsB
+        val list = map.getOrPut(normalizedRoom) { mutableStateListOf() }
         
         participants.forEach { u ->
             if (u.contains(filter, ignoreCase = true) && !list.contains(u)) {

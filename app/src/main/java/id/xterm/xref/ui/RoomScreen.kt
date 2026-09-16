@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import id.xterm.xref.core.match.MatchSide
 import id.xterm.xref.ui.components.ChatView
 import id.xterm.xref.ui.components.XrefButton
 import id.xterm.xref.ui.components.XrefTextField
@@ -34,6 +35,7 @@ import id.xterm.xref.ui.theme.DarkGreen800
 import id.xterm.xref.ui.theme.NeonGreen
 import id.xterm.xref.ui.theme.RedPucat
 import id.xterm.xref.ui.theme.TextDim
+import kotlinx.coroutines.flow.MutableStateFlow
 
 @Composable
 fun RoomScreen(
@@ -255,14 +257,28 @@ private fun RoomChatDetail(
             )
 
             // Team Selection Buttons in same row
-            val players = homeViewModel.scheduledMatches[roomName.lowercase()]
-            if (players != null) {
+            val normalizedRoom = roomName.lowercase()
+            val session = homeViewModel.matchManager.getSession(normalizedRoom)
+            val sessionA by (session?.teamA ?: MutableStateFlow<MatchSide?>(null)).collectAsState()
+            val sessionB by (session?.teamB ?: MutableStateFlow<MatchSide?>(null)).collectAsState()
+            
+            val scheduled = homeViewModel.scheduledMatches[normalizedRoom]
+            val isSummoning = homeViewModel.summonJobs.containsKey(normalizedRoom)
+            
+            val nameA = sessionA?.name ?: scheduled?.nameA
+            val nameB = sessionB?.name ?: scheduled?.nameB
+
+            if (nameA != null && nameB != null) {
+                val selectedA = homeViewModel.selectedIdsA[normalizedRoom] ?: emptyList<String>()
+                val selectedB = homeViewModel.selectedIdsB[normalizedRoom] ?: emptyList<String>()
+                
                 Row(
-                    modifier = Modifier.weight(2f),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    modifier = Modifier.weight(2.5f),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     XrefButton(
-                        text = players.nameA,
+                        text = nameA,
                         onClick = { 
                             homeViewModel.currentSelectingTeamName = "TEAM A"
                             homeViewModel.teamSelectionDialogVisible = true 
@@ -270,12 +286,15 @@ private fun RoomChatDetail(
                         modifier = Modifier.weight(1f),
                         height = 28.dp,
                         fontSize = 9.sp,
-                        containerColor = if (homeViewModel.selectedTeamAIds.isNotEmpty()) NeonGreen else DarkGreen800,
-                        contentColor = if (homeViewModel.selectedTeamAIds.isNotEmpty()) Color.Black else NeonGreen,
+                        containerColor = if (selectedA.size == 10) NeonGreen else if (selectedA.isNotEmpty()) Color.Yellow.copy(alpha = 0.5f) else DarkGreen800,
+                        contentColor = if (selectedA.size == 10) Color.Black else NeonGreen,
                         contentPadding = PaddingValues(0.dp)
                     )
+                    
+                    Text("vs", color = NeonGreen.copy(alpha = 0.5f), fontSize = 10.sp)
+
                     XrefButton(
-                        text = players.nameB,
+                        text = nameB,
                         onClick = { 
                             homeViewModel.currentSelectingTeamName = "TEAM B"
                             homeViewModel.teamSelectionDialogVisible = true 
@@ -283,11 +302,37 @@ private fun RoomChatDetail(
                         modifier = Modifier.weight(1f),
                         height = 28.dp,
                         fontSize = 9.sp,
-                        containerColor = if (homeViewModel.selectedTeamBIds.isNotEmpty()) NeonGreen else DarkGreen800,
-                        contentColor = if (homeViewModel.selectedTeamBIds.isNotEmpty()) Color.Black else NeonGreen,
+                        containerColor = if (selectedB.size == 10) NeonGreen else if (selectedB.isNotEmpty()) Color.Yellow.copy(alpha = 0.5f) else DarkGreen800,
+                        contentColor = if (selectedB.size == 10) Color.Black else NeonGreen,
                         contentPadding = PaddingValues(0.dp)
                     )
+
+                    if (isSummoning) {
+                        XrefButton(
+                            text = "CANCEL",
+                            onClick = { homeViewModel.cancelSummon(roomName) },
+                            modifier = Modifier.width(55.dp),
+                            height = 28.dp,
+                            fontSize = 8.sp,
+                            containerColor = RedPucat,
+                            contentColor = Color.White,
+                            contentPadding = PaddingValues(0.dp)
+                        )
+                    }
                 }
+            } else if (session == null) {
+                // Room is empty and not scheduled - Show CALL button
+                XrefButton(
+                    text = "CALL MATCH FROM BRACKET",
+                    onClick = { homeViewModel.matchSelectionDialogVisible = true },
+                    modifier = Modifier.weight(1.5f),
+                    height = 32.dp,
+                    fontSize = 10.sp,
+                    containerColor = NeonGreen.copy(alpha = 0.1f),
+                    contentColor = NeonGreen,
+                    borderColor = NeonGreen,
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                )
             }
         }
 
@@ -404,17 +449,91 @@ private fun RoomChatDetail(
     if (homeViewModel.teamSelectionDialogVisible) {
         TeamSelectionDialog(homeViewModel, roomName)
     }
+
+    if (homeViewModel.matchSelectionDialogVisible) {
+        MatchSelectionDialog(homeViewModel, roomName)
+    }
+}
+
+@Composable
+fun MatchSelectionDialog(viewModel: HomeViewModel, roomName: String) {
+    val matches = viewModel.getAvailableMatchesFromBracket()
+
+    AlertDialog(
+        onDismissRequest = { viewModel.matchSelectionDialogVisible = false },
+        title = {
+            Text(
+                text = "SELECT MATCH FOR ${roomName.uppercase()}",
+                color = NeonGreen,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+                if (matches.isEmpty()) {
+                    Text(
+                        text = "NO AVAILABLE MATCHES IN BRACKET.\nENSURE SCORES ARE UPDATED.",
+                        color = TextDim,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp)
+                    )
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(matches) { (match, phase) ->
+                            XrefButton(
+                                text = "${match.teamA} vs ${match.teamB} [$phase]",
+                                onClick = {
+                                    viewModel.matchSelectionDialogVisible = false
+                                    viewModel.callMatchSummon(roomName, match.teamA, match.teamB, phase)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                height = 48.dp,
+                                fontSize = 11.sp,
+                                containerColor = DarkGreen800,
+                                contentColor = NeonGreen
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = { viewModel.matchSelectionDialogVisible = false }) {
+                Text("CANCEL", color = RedPucat)
+            }
+        },
+        containerColor = DarkBackground,
+        shape = RoundedCornerShape(8.dp)
+    )
 }
 
 @Composable
 fun TeamSelectionDialog(viewModel: HomeViewModel, roomName: String) {
     var filterText by remember { mutableStateOf("") }
     val isTeamA = viewModel.currentSelectingTeamName == "TEAM A"
-    val selectedList = if (isTeamA) viewModel.selectedTeamAIds else viewModel.selectedTeamBIds
-    val otherTeamList = if (isTeamA) viewModel.selectedTeamBIds else viewModel.selectedTeamAIds
+    val normalizedRoom = roomName.lowercase()
+    
+    val selectedList = remember(isTeamA, normalizedRoom) {
+        if (isTeamA) {
+            viewModel.selectedIdsA.getOrPut(normalizedRoom) { mutableStateListOf() }
+        } else {
+            viewModel.selectedIdsB.getOrPut(normalizedRoom) { mutableStateListOf() }
+        }
+    }
+    
+    val otherTeamList = if (isTeamA) {
+        viewModel.selectedIdsB[normalizedRoom] ?: emptyList<String>()
+    } else {
+        viewModel.selectedIdsA[normalizedRoom] ?: emptyList<String>()
+    }
     
     val allParticipants by viewModel.roomParticipants.collectAsState()
-    val roomParticipantsList = (allParticipants[roomName.lowercase()] ?: emptyList())
+    val roomParticipantsList = (allParticipants[normalizedRoom] ?: emptyList())
         .filter { !otherTeamList.contains(it) }
     
     val filteredParticipants = remember(roomParticipantsList, filterText) {
@@ -424,7 +543,7 @@ fun TeamSelectionDialog(viewModel: HomeViewModel, roomName: String) {
 
     LaunchedEffect(filterText) {
         if (filterText.length >= 3) {
-            viewModel.autoSelectParticipants(filterText, isTeamA)
+            viewModel.autoSelectParticipants(filterText, roomName, isTeamA)
         }
     }
 
@@ -491,13 +610,13 @@ fun TeamSelectionDialog(viewModel: HomeViewModel, roomName: String) {
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(if (isSelected) NeonGreen.copy(alpha = 0.2f) else Color.Transparent)
                                 .border(0.5.dp, if (isSelected) NeonGreen else Color.Gray.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
-                                .clickable { viewModel.toggleParticipantSelection(username, isTeamA) }
+                                .clickable { viewModel.toggleParticipantSelection(username, roomName, isTeamA) }
                                 .padding(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Checkbox(
                                 checked = isSelected,
-                                onCheckedChange = { viewModel.toggleParticipantSelection(username, isTeamA) },
+                                onCheckedChange = { viewModel.toggleParticipantSelection(username, roomName, isTeamA) },
                                 colors = CheckboxDefaults.colors(checkedColor = NeonGreen, checkmarkColor = Color.Black)
                             )
                             Text(
