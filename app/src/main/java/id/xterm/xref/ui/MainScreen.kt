@@ -1,5 +1,6 @@
 package id.xterm.xref.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -13,28 +14,16 @@ import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,8 +31,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
+import android.app.Activity
 import id.xterm.xref.ui.home.DashboardScreen
 import id.xterm.xref.ui.home.HomeViewModel
 import id.xterm.xref.ui.navigation.Destination
@@ -55,6 +47,10 @@ import kotlinx.coroutines.launch
 fun MainScreen(
     homeViewModel: HomeViewModel = viewModel()
 ) {
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
     var showInfoDialog by remember { mutableStateOf(false) }
 
     val pagerState = rememberPagerState(initialPage = BottomTab.entries.indexOf(BottomTab.Home)) {
@@ -64,8 +60,31 @@ fun MainScreen(
     var splashElapsed by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(3000L)
-        splashElapsed = true
+        if (!splashElapsed) {
+            kotlinx.coroutines.delay(3000L)
+            splashElapsed = true
+        }
+    }
+
+    // Handle Back Press to maintain state and minimize app instead of closing
+    BackHandler(enabled = splashElapsed) {
+        when {
+            // 1. If inside a specific room chat, go back to room list
+            pagerState.currentPage == BottomTab.entries.indexOf(BottomTab.Room) && 
+            homeViewModel.selectedRoomInRoomsTab != null -> {
+                homeViewModel.selectedRoomInRoomsTab = null
+            }
+            // 2. If not on Home tab, go to Home tab
+            pagerState.currentPage != BottomTab.entries.indexOf(BottomTab.Home) -> {
+                coroutineScope.launch {
+                    pagerState.animateScrollToPage(BottomTab.entries.indexOf(BottomTab.Home))
+                }
+            }
+            // 3. If on Home tab, minimize app (move to back)
+            else -> {
+                (context as? Activity)?.moveTaskToBack(false)
+            }
+        }
     }
 
     if (!splashElapsed) {
@@ -139,18 +158,24 @@ fun MainScreen(
         },
         bottomBar = {
             val selectedIndex = pagerState.currentPage
-            NavigationBar {
-                BottomTab.entries.forEachIndexed { index, tab ->
-                    NavigationBarItem(
-                        selected = selectedIndex == index,
-                        onClick = {
-                            coroutineScope.launch {
-                                pagerState.animateScrollToPage(index)
-                            }
-                        },
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label) }
-                    )
+            // Hide bottom bar when keyboard is visible to keep content "stuck" to keyboard
+            val isKeyboardVisible = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 0.dp
+            
+            if (!isKeyboardVisible) {
+                NavigationBar {
+                    BottomTab.entries.forEachIndexed { index, tab ->
+                        NavigationBarItem(
+                            selected = selectedIndex == index,
+                            onClick = {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(index)
+                                }
+                            },
+                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            label = if (!isLandscape) { { Text(tab.label, fontSize = 10.sp) } } else null,
+                            alwaysShowLabel = !isLandscape
+                        )
+                    }
                 }
             }
         }
@@ -158,8 +183,9 @@ fun MainScreen(
         Box(
             modifier = Modifier
                 .padding(innerPadding)
+                .windowInsetsPadding(WindowInsets.ime)
                 .fillMaxSize()
-                .padding(8.dp)
+                .padding(4.dp)
                 .border(1.dp, NeonGreen, RoundedCornerShape(12.dp))
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.background)

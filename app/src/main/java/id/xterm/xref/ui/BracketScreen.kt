@@ -30,6 +30,8 @@ import id.xterm.xref.ui.components.XrefButton
 import id.xterm.xref.ui.components.XrefCard
 import id.xterm.xref.ui.components.XrefTextField
 import id.xterm.xref.ui.home.HomeViewModel
+import id.xterm.xref.ui.home.MatchData
+import id.xterm.xref.ui.home.RoundData
 import id.xterm.xref.ui.theme.DarkBackground
 import id.xterm.xref.ui.theme.DarkGreen800
 import id.xterm.xref.ui.theme.NeonGreen
@@ -40,9 +42,8 @@ fun BracketScreen(
     homeViewModel: HomeViewModel = viewModel(),
     onLoadToDashboard: (teamA: List<String>, teamB: List<String>) -> Unit = { _, _ -> }
 ) {
-    val registeredCount = homeViewModel.registeredParticipants.size
     val totalSlots = homeViewModel.bracketSize
-    val participants = remember(registeredCount, totalSlots) {
+    val participants = remember(homeViewModel.registeredParticipants.toList(), totalSlots) {
         val list = homeViewModel.registeredParticipants.toMutableList()
         while (list.size < totalSlots) {
             list.add("EMPTY SLOT ${list.size + 1}")
@@ -113,10 +114,10 @@ fun BracketScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
-            .padding(16.dp),
+            .padding(4.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -128,28 +129,39 @@ fun BracketScreen(
                 fontFamily = FontFamily.Monospace
             )
             
-            XrefButton(
-                text = "UPDATE BRACKET",
-                onClick = { bracketVersion++ },
-                modifier = Modifier.width(130.dp),
-                height = 32.dp,
-                fontSize = 9.sp
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                XrefButton(
+                    text = "UPDATE",
+                    onClick = { bracketVersion++ },
+                    modifier = Modifier.width(62.dp),
+                    height = 28.dp,
+                    fontSize = 8.sp,
+                    contentPadding = PaddingValues(0.dp)
+                )
+                XrefButton(
+                    text = "BROADCAST",
+                    onClick = { homeViewModel.broadcastManualBracket(rounds) },
+                    modifier = Modifier.width(82.dp),
+                    height = 28.dp,
+                    fontSize = 8.sp,
+                    contentPadding = PaddingValues(0.dp)
+                )
+            }
         }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             rounds.forEach { round ->
                 item {
                     Text(
                         text = "[ ${round.title} ]",
                         color = NeonGreen.copy(alpha = 0.6f),
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(vertical = 8.dp)
+                        modifier = Modifier.padding(vertical = 2.dp)
                     )
                 }
                 itemsIndexed(round.matches) { matchIndex, match ->
@@ -185,7 +197,7 @@ fun BracketScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(8.dp)
+                                .padding(2.dp)
                         ) {
                             Row(
                                 modifier = Modifier
@@ -251,17 +263,17 @@ fun BracketScreen(
                             }
 
                             if (expanded) {
-                                Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(4.dp))
                                 
                                 Text(
                                     text = "> MATCH HISTORY",
                                     color = NeonGreen.copy(alpha = 0.7f),
-                                    fontSize = 10.sp,
+                                    fontSize = 9.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold
                                 )
                                 
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(4.dp))
                                 
                                 val kickLogs by session?.kickLogs?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList<id.xterm.xref.core.match.KickLog>()) }
 
@@ -325,8 +337,7 @@ fun BracketScreen(
     }
 }
 
-data class MatchData(val teamA: String, val teamB: String)
-data class RoundData(val title: String, val matches: List<MatchData>)
+
 
 @Composable
 fun XrefMatchRow(
@@ -344,7 +355,7 @@ fun XrefMatchRow(
         Text(
             text = match.teamA,
             color = NeonGreen,
-            fontSize = 14.sp,
+            fontSize = 12.sp,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f),
@@ -352,38 +363,40 @@ fun XrefMatchRow(
             maxLines = 1
         )
 
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(4.dp))
 
         XrefTextField(
             value = scoreA,
             onValueChange = onScoreAChange,
             label = "",
-            modifier = Modifier.width(50.dp),
+            modifier = Modifier.width(36.dp),
+            horizontalPadding = 4.dp,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
         )
 
         Text(
             text = "vs",
             color = NeonGreen.copy(alpha = 0.5f),
-            fontSize = 12.sp,
+            fontSize = 11.sp,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(horizontal = 8.dp)
+            modifier = Modifier.padding(horizontal = 2.dp)
         )
 
         XrefTextField(
             value = scoreB,
             onValueChange = onScoreBChange,
             label = "",
-            modifier = Modifier.width(50.dp),
+            modifier = Modifier.width(36.dp),
+            horizontalPadding = 4.dp,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
         )
 
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(4.dp))
 
         Text(
             text = match.teamB,
             color = NeonGreen,
-            fontSize = 14.sp,
+            fontSize = 12.sp,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f),

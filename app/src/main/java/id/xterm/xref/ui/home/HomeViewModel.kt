@@ -34,6 +34,9 @@ data class ScheduledMatch(
     val phase: String
 )
 
+data class MatchData(val teamA: String, val teamB: String)
+data class RoundData(val title: String, val matches: List<MatchData>)
+
 class HomeViewModel : ViewModel() {
     private val webSocketRepository = WebSocketRepository.getInstance()
     private val securityManager = SecurityManager.getInstance()
@@ -568,21 +571,22 @@ class HomeViewModel : ViewModel() {
         
         registeredParticipants.clear()
         registeredParticipants.addAll(newList)
-        broadcastSeedingResult()
+        // Auto broadcast removed as per user request for manual review
     }
 
-    private fun broadcastSeedingResult() {
+    fun broadcastManualBracket(rounds: List<RoundData>) {
         val normalizedBroadcastRoom = broadcastRoom.lowercase()
-        if (isRefereeConnected && activeRooms.value.contains(normalizedBroadcastRoom)) {
-            val pairs = mutableListOf<String>()
-            for (i in 0 until registeredParticipants.size step 2) {
-                if (i + 1 < registeredParticipants.size) {
-                    pairs.add("${registeredParticipants[i].uppercase()} vs ${registeredParticipants[i+1].uppercase()}")
+        if (!isRefereeConnected || broadcastRoom.isEmpty() || !activeRooms.value.contains(normalizedBroadcastRoom)) return
+
+        viewModelScope.launch {
+            rounds.forEach { round ->
+                val pairs = round.matches.map { "${it.teamA.uppercase()} vs ${it.teamB.uppercase()}" }
+                if (pairs.isNotEmpty()) {
+                    val message = "/me [$turneyTitle] [${round.title}] BRACKET: ${pairs.joinToString(" | ")}"
+                    webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
+                    delay(500) // Small delay between rounds to avoid flood
                 }
             }
-            val seedingText = pairs.joinToString(" | ")
-            val message = "/me [$turneyTitle] ROLLING COMPLETED. BRACKET GENERATED: $seedingText"
-            webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
         }
     }
     

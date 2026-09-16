@@ -39,7 +39,8 @@ fun XrefTextField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
-    borderColor: Color = DarkGreen700
+    borderColor: Color = DarkGreen700,
+    horizontalPadding: androidx.compose.ui.unit.Dp = 12.dp
 ) {
     Column(modifier = modifier) {
         if (label.isNotEmpty()) {
@@ -74,7 +75,7 @@ fun XrefTextField(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp),
+                        .padding(horizontal = horizontalPadding),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     innerTextField()

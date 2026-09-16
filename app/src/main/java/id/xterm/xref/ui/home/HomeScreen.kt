@@ -281,8 +281,11 @@ private fun GridItem(
 
 @Composable
 private fun RefereeSection(viewModel: HomeViewModel) {
+    val scrollState = rememberScrollState()
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         // Card: PRIZE TRANSFER
@@ -410,9 +413,12 @@ private fun RefereeSection(viewModel: HomeViewModel) {
 
 @Composable
 private fun RoomSection(viewModel: HomeViewModel, onNavigateToRooms: () -> Unit) {
-    XrefCard(title = "ROOM SETUP") {
+    val scrollState = rememberScrollState()
+    XrefCard(title = "ROOM SETUP", modifier = Modifier.fillMaxHeight()) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // Broadcast Room Row
@@ -835,19 +841,21 @@ private fun MatchSection(
                                 )
                                 
                                 // Remove Participant Button
+                                val canDelete = viewModel.matchPhase == MatchPhase.REGISTRATION || viewModel.matchPhase == MatchPhase.ROLLING
                                 IconButton(
                                     onClick = { 
                                         viewModel.registeredParticipants.removeAt(index)
                                         viewModel.participantRolls.remove(participant)
                                     },
+                                    enabled = canDelete,
                                     modifier = Modifier
                                         .size(42.dp)
-                                        .background(Color(0x228B2525), RoundedCornerShape(8.dp))
-                                        .border(1.dp, Color(0x448B2525), RoundedCornerShape(8.dp))
+                                        .background(if (canDelete) Color(0x228B2525) else Color.Transparent, RoundedCornerShape(8.dp))
+                                        .border(1.dp, if (canDelete) Color(0x448B2525) else Color.Gray.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
                                 ) {
                                     Text(
                                         text = "×",
-                                        color = Color(0xFF8B2525),
+                                        color = if (canDelete) Color(0xFF8B2525) else TextDim.copy(alpha = 0.3f),
                                         fontSize = 20.sp,
                                         fontWeight = FontWeight.Bold
                                     )
