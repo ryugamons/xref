@@ -40,6 +40,9 @@ import id.xterm.xref.ui.theme.DarkGreen700
 import id.xterm.xref.ui.theme.DarkGreen800
 import id.xterm.xref.ui.theme.DarkGreen900
 import id.xterm.xref.ui.theme.NeonGreen
+import id.xterm.xref.ui.theme.RedPucat
+import id.xterm.xref.ui.theme.RedPucatBorder
+import id.xterm.xref.ui.theme.RedPucatTrans
 import id.xterm.xref.ui.theme.TextDim
 
 private enum class HomeSection {
@@ -353,7 +356,7 @@ private fun RefereeSection(viewModel: HomeViewModel) {
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !viewModel.isRefereeConnecting,
-                    containerColor = if (viewModel.isRefereeConnected) Color(0xFF8B2525) else NeonGreen,
+                    containerColor = if (viewModel.isRefereeConnected) RedPucat else NeonGreen,
                     contentColor = if (viewModel.isRefereeConnected) Color.White else DarkGreen900
                 )
             }
@@ -387,7 +390,7 @@ private fun RefereeSection(viewModel: HomeViewModel) {
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !viewModel.isStarterConnecting,
-                    containerColor = if (viewModel.isStarterConnected) Color(0xFF8B2525) else NeonGreen,
+                    containerColor = if (viewModel.isStarterConnected) RedPucat else NeonGreen,
                     contentColor = if (viewModel.isStarterConnected) Color.White else DarkGreen900
                 )
             }
@@ -450,7 +453,7 @@ private fun RoomSection(viewModel: HomeViewModel, onNavigateToRooms: () -> Unit)
                     modifier = Modifier.width(54.dp),
                     height = 42.dp,
                     enabled = viewModel.isRefereeConnected,
-                    containerColor = Color(0xFF8B2525),
+                    containerColor = RedPucat,
                     contentColor = Color.White,
                     contentPadding = PaddingValues(horizontal = 0.dp)
                 )
@@ -491,7 +494,7 @@ private fun RoomSection(viewModel: HomeViewModel, onNavigateToRooms: () -> Unit)
                         modifier = Modifier.width(54.dp),
                         height = 42.dp,
                         enabled = viewModel.isRefereeConnected,
-                        containerColor = Color(0xFF8B2525),
+                        containerColor = RedPucat,
                         contentColor = Color.White,
                         contentPadding = PaddingValues(horizontal = 0.dp)
                     )
@@ -503,12 +506,12 @@ private fun RoomSection(viewModel: HomeViewModel, onNavigateToRooms: () -> Unit)
                                 modifier = Modifier
                                     .padding(bottom = 2.dp)
                                     .size(38.dp)
-                                    .background(Color(0x228B2525), RoundedCornerShape(8.dp))
-                                    .border(1.dp, Color(0x448B2525), RoundedCornerShape(8.dp))
+                                    .background(RedPucatTrans, RoundedCornerShape(8.dp))
+                                    .border(1.dp, RedPucatBorder, RoundedCornerShape(8.dp))
                             ) {
                                 Text(
                                     text = "×",
-                                    color = Color(0xFF8B2525),
+                                    color = RedPucat,
                                     fontSize = 24.sp,
                                     fontWeight = FontWeight.Light
                                 )
@@ -543,7 +546,7 @@ private fun RoomSection(viewModel: HomeViewModel, onNavigateToRooms: () -> Unit)
                     onClick = { viewModel.leaveRooms() },
                     modifier = Modifier.weight(1f),
                     enabled = viewModel.isRefereeConnected,
-                    containerColor = Color(0xFF8B2525),
+                    containerColor = RedPucat,
                     contentColor = Color.White
                 )
             }
@@ -723,7 +726,7 @@ private fun MatchSection(
                     height = 56.dp,
                     enabled = isButtonEnabled,
                     containerColor = when {
-                        viewModel.isSummoning -> Color(0xFF8B2525)
+                        viewModel.isSummoning -> RedPucat
                         viewModel.matchPhase == MatchPhase.REGISTRATION -> Color(0xFFFFB300)
                         viewModel.matchPhase == MatchPhase.ROLLING -> Color.Gray
                         viewModel.matchPhase == MatchPhase.BRACKET_READY -> DarkGreen800
@@ -739,7 +742,7 @@ private fun MatchSection(
                         onClick = { viewModel.cancelMatchAndRefund() },
                         modifier = Modifier.weight(1f),
                         height = 56.dp,
-                        containerColor = Color(0xFF8B2525),
+                        containerColor = RedPucat,
                         contentColor = Color.White
                     )
                 }
@@ -752,7 +755,7 @@ private fun MatchSection(
                     onClick = { viewModel.toggleMatchRegistration() },
                     modifier = Modifier.fillMaxWidth(),
                     height = 42.dp,
-                    containerColor = Color(0xFF8B2525),
+                    containerColor = RedPucat,
                     contentColor = Color.White
                 )
             }
@@ -850,12 +853,12 @@ private fun MatchSection(
                                     enabled = canDelete,
                                     modifier = Modifier
                                         .size(42.dp)
-                                        .background(if (canDelete) Color(0x228B2525) else Color.Transparent, RoundedCornerShape(8.dp))
-                                        .border(1.dp, if (canDelete) Color(0x448B2525) else Color.Gray.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                                        .background(if (canDelete) RedPucatTrans else Color.Transparent, RoundedCornerShape(8.dp))
+                                        .border(1.dp, if (canDelete) RedPucatBorder else Color.Gray.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
                                 ) {
                                     Text(
                                         text = "×",
-                                        color = if (canDelete) Color(0xFF8B2525) else TextDim.copy(alpha = 0.3f),
+                                        color = if (canDelete) RedPucat else TextDim.copy(alpha = 0.3f),
                                         fontSize = 20.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -990,7 +993,7 @@ private fun SettingsSection(viewModel: HomeViewModel) {
             Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "XREF TERMINAL v1.0.0",
+                text = "XREF v1.01",
                 color = NeonGreen.copy(alpha = 0.3f),
                 fontFamily = FontFamily.Monospace,
                 fontSize = 10.sp,

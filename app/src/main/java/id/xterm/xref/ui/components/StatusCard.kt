@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.sp
 import id.xterm.xref.ui.theme.DarkGreen700
 import id.xterm.xref.ui.theme.DarkGreen800
 import id.xterm.xref.ui.theme.NeonGreen
+import id.xterm.xref.ui.theme.RedPucat
 import id.xterm.xref.ui.theme.TextDim
 
 @Composable
@@ -60,7 +61,7 @@ fun StatusCard(
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = status,
-                color = if (isConnected) NeonGreen else if (status == "login failed") Color(0xFF8B2525) else TextDim,
+                color = if (isConnected) NeonGreen else if (status == "login failed") RedPucat else TextDim,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace
             )

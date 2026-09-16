@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.statusBars
@@ -105,7 +106,7 @@ fun MainScreen(
             text = {
                 Text(
                     text = "App Name: XREF\n" +
-                            "Version: 1.0.0\n" +
+                            "Version: 1.0.1\n" +
                             "Creator: HEX\n\n" +
                             "Description: A professional broadcasting and starter tool for mig33 kick tournaments. Features include real-time match monitoring, tournament brackets, and automated 10vs10 match logic.",
                     color = NeonGreen
@@ -158,11 +159,18 @@ fun MainScreen(
         },
         bottomBar = {
             val selectedIndex = pagerState.currentPage
-            // Hide bottom bar when keyboard is visible to keep content "stuck" to keyboard
             val isKeyboardVisible = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 0.dp
             
             if (!isKeyboardVisible) {
-                NavigationBar {
+                // Adjust height based on orientation for better visibility
+                val barHeight = if (isLandscape) 56.dp else 80.dp
+                val iconSize = if (isLandscape) 24.dp else 28.dp
+
+                NavigationBar(
+                    modifier = Modifier.height(barHeight),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 0.dp
+                ) {
                     BottomTab.entries.forEachIndexed { index, tab ->
                         NavigationBarItem(
                             selected = selectedIndex == index,
@@ -171,9 +179,22 @@ fun MainScreen(
                                     pagerState.animateScrollToPage(index)
                                 }
                             },
-                            icon = { Icon(tab.icon, contentDescription = tab.label) },
-                            label = if (!isLandscape) { { Text(tab.label, fontSize = 10.sp) } } else null,
-                            alwaysShowLabel = !isLandscape
+                            icon = { 
+                                Icon(
+                                    imageVector = tab.icon, 
+                                    contentDescription = tab.label,
+                                    modifier = Modifier.size(iconSize)
+                                ) 
+                            },
+                            label = null,
+                            alwaysShowLabel = false,
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = NeonGreen,
+                                selectedTextColor = NeonGreen,
+                                unselectedIconColor = NeonGreen.copy(alpha = 0.5f),
+                                unselectedTextColor = NeonGreen.copy(alpha = 0.5f),
+                                indicatorColor = NeonGreen.copy(alpha = 0.1f)
+                            )
                         )
                     }
                 }

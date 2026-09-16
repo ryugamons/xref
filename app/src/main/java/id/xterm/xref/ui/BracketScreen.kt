@@ -35,6 +35,7 @@ import id.xterm.xref.ui.home.RoundData
 import id.xterm.xref.ui.theme.DarkBackground
 import id.xterm.xref.ui.theme.DarkGreen800
 import id.xterm.xref.ui.theme.NeonGreen
+import id.xterm.xref.ui.theme.RedPucat
 import id.xterm.xref.ui.theme.TextDim
 
 @Composable
@@ -253,7 +254,7 @@ fun BracketScreen(
                                     fontSize = 10.sp,
                                     enabled = isThisActiveSummon || (!homeViewModel.isSummoning && !hasManualScore),
                                     containerColor = when {
-                                        isThisActiveSummon -> Color(0xFF8B2525)
+                                        isThisActiveSummon -> RedPucat
                                         hasManualScore -> DarkGreen800
                                         else -> NeonGreen
                                     },

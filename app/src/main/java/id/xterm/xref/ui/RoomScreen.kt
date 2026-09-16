@@ -32,6 +32,7 @@ import id.xterm.xref.ui.home.HomeViewModel
 import id.xterm.xref.ui.theme.DarkBackground
 import id.xterm.xref.ui.theme.DarkGreen800
 import id.xterm.xref.ui.theme.NeonGreen
+import id.xterm.xref.ui.theme.RedPucat
 import id.xterm.xref.ui.theme.TextDim
 
 @Composable
@@ -353,7 +354,7 @@ private fun RoomChatDetail(
                         text = { 
                             Text(
                                 text = "KICK OFF", 
-                                color = Color(0xFF8B2525), 
+                                color = RedPucat, 
                                 fontSize = 11.sp, 
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.ExtraBold
@@ -468,7 +469,7 @@ fun TeamSelectionDialog(viewModel: HomeViewModel, roomName: String) {
                     ) {
                         Text(
                             text = "CLEAR ALL",
-                            color = Color(0xFF8B2525),
+                            color = RedPucat,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace

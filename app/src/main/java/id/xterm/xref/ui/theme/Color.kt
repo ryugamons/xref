@@ -16,3 +16,8 @@ val SurfaceColor = DarkGreen800
 val GreenPrimary = NeonGreen
 val GreenSecondary = Color(0xFF008F11)
 val GreenTertiary = Color(0xFF003B00)
+
+val RedPucat = Color(0xFFFF5252)
+val RedPucatTrans = Color(0x22633A3A)
+val RedPucatBorder = Color(0x44633A3A)
+

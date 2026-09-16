@@ -1,5 +1,6 @@
 package id.xterm.xref.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -12,11 +13,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import id.xterm.xref.R
 import id.xterm.xref.core.websocket.ChatMessage
 import id.xterm.xref.core.websocket.MessageType
 import id.xterm.xref.ui.theme.NeonGreen
@@ -40,12 +45,22 @@ fun ChatView(
         modifier = modifier
             .fillMaxSize()
             .border(1.dp, NeonGreen.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-            .background(Color.Black.copy(alpha = 0.3f))
-            .padding(8.dp)
+            .background(Color.Black)
     ) {
+        Image(
+            painter = painterResource(id = R.drawable.klepon),
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(0.25f),
+            contentScale = ContentScale.Crop
+        )
+        
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             items(messages) { message ->
