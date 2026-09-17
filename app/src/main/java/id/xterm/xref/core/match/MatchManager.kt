@@ -40,7 +40,7 @@ data class MatchSide(
 class MatchSession(
     val room: String,
     private val webSocketRepository: WebSocketRepository,
-    private val onMatchFinished: (String, String, String, String, String, Boolean) -> Unit // room, phase, nameA, nameB, resultSummary, isSuspend
+    private val onMatchFinished: (String, String, String, String, Boolean) -> Unit // room, phase, winnerName, scoreSummary, isSuspend
 ) {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
@@ -64,6 +64,7 @@ class MatchSession(
     private var battleStartTime = 0L
     private var voteTimer: Job? = null
     private var postKickTimer: Job? = null
+    private var lockJob: Job? = null
     
     private var isGoalSent = false
     private var endReason: String = ""
@@ -119,6 +120,15 @@ class MatchSession(
             _state.value = MatchState.Battle
             battleStartTime = serverNow
             Log.d("XREF_MATCH", "Battle Started in $room at ServerTime: $serverNow")
+            
+            // Auto-lock room after 30s of battle
+            lockJob?.cancel()
+            lockJob = scope.launch {
+                delay(30000)
+                if (_state.value == MatchState.Battle) {
+                    webSocketRepository.sendMessage(room, "/lock", "REFEREE")
+                }
+            }
             return
         }
 
@@ -262,17 +272,24 @@ class MatchSession(
             val winnerPart = if (winnerName != "DRAW") "\nWinner: ${winnerName.uppercase()}" else "\nRESULT: DRAW"
             
             // Battle Room Message
-            val resultMsg = "/me [BATTLE RESULT]\n$resultSummary$winnerPart\nCongrats!! Please leave the room"
+            val resultMsg = "/me [RESULT]\n$resultSummary$winnerPart\nCongrats!! Please leave the room"
             webSocketRepository.sendMessage(room, resultMsg, "REFEREE")
             
-            // Notification for main broadcast
-            onMatchFinished(room, currentPhase, sideA.name, sideB.name, "$resultSummary${winnerPart.replace("\n", " ")}", isSuspendA || isSuspendB)
+            // Auto-unlock and unmod room 1s after results
+            delay(1000)
+            webSocketRepository.sendMessage(room, "/unlock", "REFEREE")
+            webSocketRepository.sendMessage(room, "/unmod ${sideA.name}", "REFEREE")
+            webSocketRepository.sendMessage(room, "/unmod ${sideB.name}", "REFEREE")
+            
+            // Notification for main broadcast with new format components
+            onMatchFinished(room, currentPhase, winnerName, resultSummary, isSuspendA || isSuspendB)
         }
     }
 
     fun stop() {
         voteTimer?.cancel()
         postKickTimer?.cancel()
+        lockJob?.cancel()
         _state.value = MatchState.Idle
     }
 }
@@ -296,7 +313,15 @@ class MatchManager @Inject constructor(
     val activeSessions = _activeSessions.asStateFlow()
     
     var mainBroadcastRoom: String = ""
-    var onMatchFinished: ((String) -> Unit)? = null
+    
+    data class MatchResult(
+        val room: String, 
+        val phase: String, 
+        val winner: String, 
+        val summary: String, 
+        val isSuspend: Boolean
+    )
+    var onMatchFinished: ((MatchResult) -> Unit)? = null
 
     init {
         scope.launch {
@@ -322,9 +347,9 @@ class MatchManager @Inject constructor(
     fun startMatch(room: String, phase: String, nameA: String, teamAIds: List<String>, nameB: String, teamBIds: List<String>) {
         val normalizedRoom = room.lowercase()
         val session = sessions.getOrPut(normalizedRoom) { 
-            MatchSession(normalizedRoom, webSocketRepository) { r, ph, nA, nB, summary, susp ->
-                broadcastToMain(r, ph, nA, nB, summary, susp)
-                onMatchFinished?.invoke(r)
+            MatchSession(normalizedRoom, webSocketRepository) { r, ph, winner, summary, susp ->
+                val result = MatchResult(r, ph, winner, summary, susp)
+                onMatchFinished?.invoke(result)
                 stopMatch(r)
             }
         }
@@ -332,9 +357,10 @@ class MatchManager @Inject constructor(
         updateActiveSessions()
     }
 
-    private fun broadcastToMain(battleRoom: String, phase: String, nameA: String, nameB: String, resultSummary: String, isSuspend: Boolean) {
+    fun broadcastResult(result: MatchResult) {
         if (mainBroadcastRoom.isNotEmpty()) {
-            val msg = "/me [${phase.uppercase()}]\n[${battleRoom.uppercase()}]\n$resultSummary"
+            val winnerPart = if (result.winner != "DRAW") " Winner: ${result.winner.uppercase()}" else " RESULT: DRAW"
+            val msg = "/me [${result.room.uppercase()}]$winnerPart\n${result.summary}"
             webSocketRepository.sendMessage(mainBroadcastRoom, msg, "REFEREE")
         }
     }

@@ -33,6 +33,7 @@ object AuthPreferences {
     private val KEY_READY_CHECK_TEMPLATE = stringPreferencesKey("ready_check_template")
     private val KEY_KICKOFF_WARNING_TEMPLATE = stringPreferencesKey("kickoff_warning_template")
     private val KEY_AUTO_LEAVE_STARTER = stringPreferencesKey("auto_leave_starter")
+    private val KEY_AUTO_BROADCAST_RESULT = stringPreferencesKey("auto_broadcast_result")
     private val KEY_LICENSE_SIGNATURE = stringPreferencesKey("license_signature")
     private val KEY_LICENSE_CANARY = stringPreferencesKey("license_canary")
 
@@ -105,6 +106,10 @@ object AuthPreferences {
         dataStore.edit { prefs -> prefs[KEY_AUTO_LEAVE_STARTER] = enabled.toString() }
     }
 
+    suspend fun saveAutoBroadcastResult(enabled: Boolean) {
+        dataStore.edit { prefs -> prefs[KEY_AUTO_BROADCAST_RESULT] = enabled.toString() }
+    }
+
     suspend fun saveLicense(signature: String, canary: String) {
         dataStore.edit { prefs ->
             prefs[KEY_LICENSE_SIGNATURE] = signature
@@ -140,6 +145,7 @@ object AuthPreferences {
     suspend fun getReadyCheckTemplate(): String = dataStore.data.map { it[KEY_READY_CHECK_TEMPLATE] ?: "/me :D/ Are you ready to fvck?" }.first()
     
     suspend fun getAutoLeaveStarter(): Boolean = dataStore.data.map { it[KEY_AUTO_LEAVE_STARTER]?.toBoolean() ?: false }.first()
+    suspend fun getAutoBroadcastResult(): Boolean = dataStore.data.map { it[KEY_AUTO_BROADCAST_RESULT]?.toBoolean() ?: true }.first()
 
     suspend fun getLicenseSignature(): String? = dataStore.data.map { it[KEY_LICENSE_SIGNATURE] }.first()
     suspend fun getLicenseCanary(): String? = dataStore.data.map { it[KEY_LICENSE_CANARY] }.first()

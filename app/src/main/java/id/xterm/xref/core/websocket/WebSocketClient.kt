@@ -58,6 +58,7 @@ class WebSocketClient(
 
     fun disconnect() {
         webSocket?.close(1000, "User logout")
+        webSocket?.cancel() // Force close immediately
         clientScope.cancel()
     }
 

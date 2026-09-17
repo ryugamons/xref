@@ -25,4 +25,11 @@ interface AuthService {
         @retrofit2.http.Header("Authorization") token: String,
         @Body request: id.xterm.xref.core.websocket.TransferRequest
     ): Response<id.xterm.xref.core.websocket.TransferResponse>
+
+    @POST("media/uploads")
+    suspend fun uploadPhoto(
+        @retrofit2.http.Header("Authorization") token: String,
+        @retrofit2.http.Header("User-Agent") userAgent: String,
+        @Body request: id.xterm.xref.core.websocket.PhotoUploadRequest
+    ): Response<id.xterm.xref.core.websocket.PhotoUploadResponse>
 }

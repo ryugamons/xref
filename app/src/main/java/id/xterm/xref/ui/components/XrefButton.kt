@@ -30,7 +30,7 @@ fun XrefButton(
     borderColor: Color = Color.Transparent,
     height: Dp = 48.dp,
     fontSize: TextUnit = 14.sp,
-    contentPadding: PaddingValues = ButtonDefaults.ContentPadding
+    contentPadding: PaddingValues = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
 ) {
     Button(
         onClick = onClick,

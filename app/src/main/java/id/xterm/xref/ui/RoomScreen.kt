@@ -23,8 +23,16 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
+import java.io.ByteArrayOutputStream
+import androidx.compose.ui.platform.LocalContext
 import id.xterm.xref.core.match.MatchSide
 import id.xterm.xref.ui.components.ChatView
 import id.xterm.xref.ui.components.XrefButton
@@ -34,6 +42,7 @@ import id.xterm.xref.ui.theme.DarkBackground
 import id.xterm.xref.ui.theme.DarkGreen800
 import id.xterm.xref.ui.theme.NeonGreen
 import id.xterm.xref.ui.theme.RedPucat
+import id.xterm.xref.ui.theme.RedPucatTrans
 import id.xterm.xref.ui.theme.TextDim
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -227,54 +236,100 @@ private fun RoomChatDetail(
     onBack: () -> Unit,
     showBackButton: Boolean = true
 ) {
+    val normalizedRoom = roomName.lowercase()
+    val session = homeViewModel.matchManager.getSession(normalizedRoom)
+    val isSummoning = homeViewModel.summonJobs.containsKey(normalizedRoom)
+    val scheduled = homeViewModel.scheduledMatches[normalizedRoom]
+    val pendingResult = homeViewModel.pendingMatchResults[normalizedRoom]
+
+    val context = LocalContext.current
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            try {
+                val inputStream = context.contentResolver.openInputStream(it)
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                val outputStream = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
+                val base64Data = Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
+                homeViewModel.uploadAndSendImage(roomName, base64Data)
+            } catch (e: Exception) {
+                homeViewModel.showSnackbar("PICK ERROR: ${e.message}")
+            }
+        }
+    }
+
+    var showDisDialog by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
-            .padding(8.dp)
+            .padding(4.dp)
     ) {
+        // CONSOLIDATED HEADER ROW
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(bottom = 8.dp)
+            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             if (showBackButton) {
-                IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = "Back",
-                        tint = NeonGreen
-                    )
+                IconButton(onClick = onBack, modifier = Modifier.size(28.dp)) {
+                    Icon(imageVector = Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = NeonGreen)
                 }
-                Spacer(modifier = Modifier.width(8.dp))
             }
+            
             Text(
                 text = roomName.uppercase(),
                 color = NeonGreen,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
                 fontFamily = FontFamily.Monospace,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(if (scheduled == null && session == null) 1f else 0.4f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
 
-            // Team Selection Buttons in same row
-            val normalizedRoom = roomName.lowercase()
-            val session = homeViewModel.matchManager.getSession(normalizedRoom)
-            val sessionA by (session?.teamA ?: MutableStateFlow<MatchSide?>(null)).collectAsState()
-            val sessionB by (session?.teamB ?: MutableStateFlow<MatchSide?>(null)).collectAsState()
-            
-            val scheduled = homeViewModel.scheduledMatches[normalizedRoom]
-            val isSummoning = homeViewModel.summonJobs.containsKey(normalizedRoom)
-            
-            val nameA = sessionA?.name ?: scheduled?.nameA
-            val nameB = sessionB?.name ?: scheduled?.nameB
+            // CALL / CANCEL Button
+            if (isSummoning) {
+                XrefButton(
+                    text = "STOPCALL",
+                    onClick = { homeViewModel.cancelSummon(roomName) },
+                    modifier = Modifier.width(60.dp),
+                    height = 26.dp,
+                    fontSize = 8.sp,
+                    containerColor = RedPucat,
+                    contentColor = Color.White,
+                    contentPadding = PaddingValues(0.dp)
+                )
+            } else if (session == null && scheduled == null) {
+                XrefButton(
+                    text = "CALL",
+                    onClick = { homeViewModel.matchSelectionDialogVisible = true },
+                    modifier = Modifier.width(50.dp),
+                    height = 26.dp,
+                    fontSize = 9.sp,
+                    containerColor = NeonGreen,
+                    contentColor = Color.Black,
+                    contentPadding = PaddingValues(0.dp)
+                )
+            }
 
-            if (nameA != null && nameB != null) {
+            // Match UI (Team A vs Team B)
+            if (scheduled != null || session != null) {
+                val sessionA by (session?.teamA ?: MutableStateFlow<MatchSide?>(null)).collectAsState()
+                val sessionB by (session?.teamB ?: MutableStateFlow<MatchSide?>(null)).collectAsState()
+                
+                val nameA = sessionA?.name ?: scheduled?.nameA ?: "TIM A"
+                val nameB = sessionB?.name ?: scheduled?.nameB ?: "TIM B"
+
                 val selectedA = homeViewModel.selectedIdsA[normalizedRoom] ?: emptyList<String>()
                 val selectedB = homeViewModel.selectedIdsB[normalizedRoom] ?: emptyList<String>()
                 
                 Row(
-                    modifier = Modifier.weight(2.5f),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     XrefButton(
@@ -284,14 +339,14 @@ private fun RoomChatDetail(
                             homeViewModel.teamSelectionDialogVisible = true 
                         },
                         modifier = Modifier.weight(1f),
-                        height = 28.dp,
-                        fontSize = 9.sp,
-                        containerColor = if (selectedA.size == 10) NeonGreen else if (selectedA.isNotEmpty()) Color.Yellow.copy(alpha = 0.5f) else DarkGreen800,
+                        height = 26.dp,
+                        fontSize = 8.sp,
+                        containerColor = if (selectedA.size == 10) NeonGreen else if (selectedA.isNotEmpty()) Color.Yellow.copy(alpha = 0.4f) else DarkGreen800,
                         contentColor = if (selectedA.size == 10) Color.Black else NeonGreen,
                         contentPadding = PaddingValues(0.dp)
                     )
                     
-                    Text("vs", color = NeonGreen.copy(alpha = 0.5f), fontSize = 10.sp)
+                    Text("vs", color = NeonGreen.copy(alpha = 0.5f), fontSize = 8.sp)
 
                     XrefButton(
                         text = nameB,
@@ -300,39 +355,19 @@ private fun RoomChatDetail(
                             homeViewModel.teamSelectionDialogVisible = true 
                         },
                         modifier = Modifier.weight(1f),
-                        height = 28.dp,
-                        fontSize = 9.sp,
-                        containerColor = if (selectedB.size == 10) NeonGreen else if (selectedB.isNotEmpty()) Color.Yellow.copy(alpha = 0.5f) else DarkGreen800,
+                        height = 26.dp,
+                        fontSize = 8.sp,
+                        containerColor = if (selectedB.size == 10) NeonGreen else if (selectedB.isNotEmpty()) Color.Yellow.copy(alpha = 0.4f) else DarkGreen800,
                         contentColor = if (selectedB.size == 10) Color.Black else NeonGreen,
                         contentPadding = PaddingValues(0.dp)
                     )
 
-                    if (isSummoning) {
-                        XrefButton(
-                            text = "CANCEL",
-                            onClick = { homeViewModel.cancelSummon(roomName) },
-                            modifier = Modifier.width(55.dp),
-                            height = 28.dp,
-                            fontSize = 8.sp,
-                            containerColor = RedPucat,
-                            contentColor = Color.White,
-                            contentPadding = PaddingValues(0.dp)
-                        )
+                    if (!isSummoning && session == null) {
+                        IconButton(onClick = { homeViewModel.abortMatch(roomName) }, modifier = Modifier.size(24.dp)) {
+                            Text("×", color = RedPucat, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
                     }
                 }
-            } else if (session == null) {
-                // Room is empty and not scheduled - Show CALL button
-                XrefButton(
-                    text = "CALL MATCH FROM BRACKET",
-                    onClick = { homeViewModel.matchSelectionDialogVisible = true },
-                    modifier = Modifier.weight(1.5f),
-                    height = 32.dp,
-                    fontSize = 10.sp,
-                    containerColor = NeonGreen.copy(alpha = 0.1f),
-                    contentColor = NeonGreen,
-                    borderColor = NeonGreen,
-                    contentPadding = PaddingValues(horizontal = 8.dp)
-                )
             }
         }
 
@@ -354,11 +389,13 @@ private fun RoomChatDetail(
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Box(modifier = Modifier.wrapContentSize(Alignment.TopStart).padding(bottom = 2.dp)) {
+            val remainingSeconds = homeViewModel.roomCountdowns[roomName.lowercase()]
+            
+            Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
                 XrefButton(
                     text = "▼",
                     onClick = { dropdownExpanded = true },
@@ -425,17 +462,91 @@ private fun RoomChatDetail(
                             homeViewModel.starterLeave(roomName)
                         }
                     )
+                    
+                    DropdownMenuItem(
+                        text = { 
+                            Text(
+                                text = "SEND RESULT", 
+                                color = if (pendingResult != null) Color(0xFFFFB300) else TextDim.copy(alpha = 0.5f), 
+                                fontSize = 11.sp, 
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.ExtraBold
+                            ) 
+                        },
+                        onClick = {
+                            dropdownExpanded = false
+                            if (pendingResult != null) {
+                                homeViewModel.sendManualMatchResult(roomName)
+                            } else {
+                                homeViewModel.showSnackbar("NO RESULT TO SEND YET")
+                            }
+                        }
+                    )
+                }
+            }
+
+            if (remainingSeconds != null) {
+                val isTimeUp = remainingSeconds <= 0
+                val min = remainingSeconds / 60
+                val sec = remainingSeconds % 60
+                val timeStr = if (isTimeUp) "DIS" else "%02d:%02d".format(min, sec)
+
+                Row(
+                    modifier = Modifier
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isTimeUp) RedPucat else DarkGreen800)
+                        .border(
+                            1.dp, 
+                            if (isTimeUp || remainingSeconds < 30) RedPucat else NeonGreen.copy(alpha = 0.5f), 
+                            RoundedCornerShape(8.dp)
+                        )
+                        .clickable { 
+                            if (isTimeUp) showDisDialog = true 
+                            else homeViewModel.stopManualCountdown(roomName) 
+                        }
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = timeStr,
+                        color = if (isTimeUp) Color.White else NeonGreen,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    if (!isTimeUp) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "×",
+                            color = RedPucat,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 
             XrefTextField(
                 value = inputText,
                 onValueChange = { inputText = it },
-                label = "Message",
+                label = "", 
                 modifier = Modifier.weight(1f),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { sendMessage() })
             )
+            
+            XrefButton(
+                text = if (homeViewModel.isUploadingImage) "..." else "IMG",
+                onClick = { photoPickerLauncher.launch("image/*") },
+                modifier = Modifier.width(42.dp),
+                height = 42.dp,
+                enabled = !homeViewModel.isUploadingImage,
+                contentPadding = PaddingValues(horizontal = 0.dp),
+                containerColor = DarkGreen800,
+                contentColor = NeonGreen
+            )
+
             XrefButton(
                 text = "SEND",
                 onClick = { sendMessage() },
@@ -452,6 +563,80 @@ private fun RoomChatDetail(
 
     if (homeViewModel.matchSelectionDialogVisible) {
         MatchSelectionDialog(homeViewModel, roomName)
+    }
+
+    if (showDisDialog) {
+        val scheduled = homeViewModel.scheduledMatches[roomName.lowercase()]
+        val nameA = scheduled?.nameA ?: "TEAM A"
+        val nameB = scheduled?.nameB ?: "TEAM B"
+
+        AlertDialog(
+            onDismissRequest = { showDisDialog = false },
+            title = {
+                Text(
+                    text = "DECLARE DISQUALIFICATION",
+                    color = NeonGreen,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Select the result for this match:",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    
+                    XrefButton(
+                        text = "$nameA WINS ($nameB DIS)",
+                        onClick = {
+                            homeViewModel.broadcastDisDecision(roomName, nameA, nameB, false)
+                            showDisDialog = false
+                        },
+                        containerColor = DarkGreen800,
+                        contentColor = NeonGreen,
+                        height = 42.dp,
+                        fontSize = 10.sp
+                    )
+                    
+                    XrefButton(
+                        text = "$nameB WINS ($nameA DIS)",
+                        onClick = {
+                            homeViewModel.broadcastDisDecision(roomName, nameB, nameA, false)
+                            showDisDialog = false
+                        },
+                        containerColor = DarkGreen800,
+                        contentColor = NeonGreen,
+                        height = 42.dp,
+                        fontSize = 10.sp
+                    )
+                    
+                    XrefButton(
+                        text = "BOTH TEAMS DIS",
+                        onClick = {
+                            homeViewModel.broadcastDisDecision(roomName, null, null, true)
+                            showDisDialog = false
+                        },
+                        containerColor = RedPucatTrans,
+                        contentColor = RedPucat,
+                        borderColor = RedPucat,
+                        height = 42.dp,
+                        fontSize = 10.sp
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showDisDialog = false }) {
+                    Text("CANCEL", color = TextDim, fontFamily = FontFamily.Monospace)
+                }
+            },
+            containerColor = DarkBackground,
+            shape = RoundedCornerShape(8.dp)
+        )
     }
 }
 

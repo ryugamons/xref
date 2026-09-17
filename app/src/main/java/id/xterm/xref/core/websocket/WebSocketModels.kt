@@ -74,6 +74,32 @@ data class TransferResponse(
     val transaction: TransactionData? = null
 )
 
+@JsonClass(generateAdapter = true)
+@Serializable
+data class PhotoUploadRequest(
+    val filename: String,
+    @Json(name = "mime_type") val mimeType: String,
+    @Json(name = "data_base64") val dataBase64: String,
+    @Json(name = "context_type") val contextType: String = "room_chat",
+    @Json(name = "context_id") val contextId: String
+)
+
+@JsonClass(generateAdapter = true)
+@Serializable
+data class PhotoUploadResponse(
+    @Json(name = "media_url") val mediaUrl: String,
+    val media: MediaData,
+    val status: String
+)
+
+@JsonClass(generateAdapter = true)
+@Serializable
+data class MediaData(
+    val id: Long,
+    @Json(name = "mime_type") val mimeType: String,
+    @Json(name = "size_bytes") val sizeBytes: Long
+)
+
 /** WEBSOCKET REQUEST MODELS **/
 
 @Serializable
@@ -101,7 +127,11 @@ data class SendMessageRequest(
     val id: String,
     val type: String = "room.message.send",
     val room: String,
-    val body: String
+    val body: String? = null,
+    @SerialName("media_url") val mediaUrl: String? = null,
+    @SerialName("media_mime_type") val mediaMimeType: String? = null,
+    @SerialName("media_size_bytes") val mediaSizeBytes: Long? = null,
+    @SerialName("client_message_id") val clientMessageId: String? = null
 )
 
 @Serializable

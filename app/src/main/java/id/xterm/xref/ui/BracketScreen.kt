@@ -89,7 +89,7 @@ fun BracketScreen(
             list.add(roundData)
             
             // Calculate winners for next round
-            currentNames = matches.indices.map { i ->
+            val winners = matches.indices.map { i ->
                 val score = bracketScores["${title}_$i"]
                 val sA = score?.first?.toIntOrNull() ?: -1
                 val sB = score?.second?.toIntOrNull() ?: -1
@@ -97,6 +97,20 @@ fun BracketScreen(
                 if (sA > sB) matches[i].teamA 
                 else if (sB > sA) matches[i].teamB 
                 else "WINNER ${title}-${i + 1}"
+            }
+
+            // Cross-Bracket Seeding: Match i meets Match i + (N/2)
+            // Only applied if round has more than 8 matches (more than 16 users)
+            if (roundSize > 8) {
+                val half = roundSize / 2
+                val reordered = mutableListOf<String>()
+                for (i in 0 until half) {
+                    reordered.add(winners[i])
+                    reordered.add(winners[i + half])
+                }
+                currentNames = reordered
+            } else {
+                currentNames = winners
             }
             
             roundSize /= 2
@@ -132,9 +146,9 @@ fun BracketScreen(
             XrefButton(
                 text = "UPDATE",
                 onClick = { bracketVersion++ },
-                modifier = Modifier.width(62.dp),
+                modifier = Modifier.width(64.dp),
                 height = 28.dp,
-                fontSize = 8.sp,
+                fontSize = 9.sp,
                 contentPadding = PaddingValues(0.dp)
             )
         }

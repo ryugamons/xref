@@ -180,6 +180,16 @@ class WebSocketRepository @Inject constructor() {
                         }
                         presenceMsgs.forEach { msg -> messageSubscribers.forEach { it.trySend(normalizedRoomKey to msg) } }
                     } else {
+                        // Also update participant list for others joining via room.joined
+                        _roomParticipants.update { currentMap ->
+                            currentMap.toMutableMap().apply {
+                                val list = this[normalizedRoomKey]?.toMutableList() ?: mutableListOf()
+                                if (!list.contains(usernameInPacket)) {
+                                    list.add(usernameInPacket)
+                                    this[normalizedRoomKey] = list
+                                }
+                            }
+                        }
                         val enterMsg = ChatMessage(room = displayRoom, username = usernameInPacket, text = "has entered", time = time, type = MessageType.PRESENCE, eventType = type)
                         messageSubscribers.forEach { it.trySend(normalizedRoomKey to enterMsg) }
                     }
@@ -233,11 +243,8 @@ class WebSocketRepository @Inject constructor() {
                 }
             }
             "wallet.updated" -> {
-                val username = jsonObject.get("username")?.jsonPrimitive?.contentOrNull
                 val balance = jsonObject.get("wallet_balance_milli_cr")?.jsonPrimitive?.longOrNull ?: 0L
-                if (username != null && username == sessionUsernames[connectionType]) {
-                    updateWalletState(balance, connectionType)
-                }
+                updateWalletState(balance, connectionType)
             }
             "error" -> {
                 val code = jsonObject.get("code")?.jsonPrimitive?.contentOrNull
@@ -262,7 +269,7 @@ class WebSocketRepository @Inject constructor() {
     }
 
     private fun updateWalletState(balanceMilliCr: Long, connectionType: String) {
-        val balanceText = "${balanceMilliCr / 1000} CR"
+        val balanceText = String.format(java.util.Locale.US, "%.2f CR", balanceMilliCr / 1000.0)
         if (connectionType == "REFEREE") _refereeWalletBalance.value = balanceText
         else _starterWalletBalance.value = balanceText
     }
@@ -318,6 +325,28 @@ class WebSocketRepository @Inject constructor() {
             }
         } catch (e: Exception) { Log.e("XREF_AUTH", "Transfer failed: ${e.message}") }
         return false
+    }
+
+    suspend fun uploadPhoto(filename: String, base64Data: String, contextId: String, connectionType: String): PhotoUploadResponse? {
+        val token = AuthPreferences.getAccessToken(connectionType)
+        if (token.isEmpty()) return null
+        val request = PhotoUploadRequest(
+            filename = filename,
+            mimeType = "image/jpeg",
+            dataBase64 = base64Data,
+            contextId = contextId
+        )
+        try {
+            val ua = "mig33-reborn-native-android"
+            val response = authService.uploadPhoto("Bearer $token", ua, request)
+            if (response.isSuccessful) return response.body()
+            if (response.code() == 401 && refreshTokens(connectionType)) {
+                val newToken = AuthPreferences.getAccessToken(connectionType)
+                val retryResponse = authService.uploadPhoto("Bearer $newToken", ua, request)
+                if (retryResponse.isSuccessful) return retryResponse.body()
+            }
+        } catch (e: Exception) { Log.e("XREF_AUTH", "Photo upload failed: ${e.message}") }
+        return null
     }
 
     private suspend fun refreshTokens(connectionType: String): Boolean {
@@ -417,6 +446,18 @@ class WebSocketRepository @Inject constructor() {
         }
     }
 
+    fun sendImageMessage(room: String, mediaUrl: String, mimeType: String, sizeBytes: Long, connectionType: String) {
+        val req = SendMessageRequest(
+            id = nextId(connectionType),
+            room = room.lowercase(),
+            mediaUrl = mediaUrl,
+            mediaMimeType = mimeType,
+            mediaSizeBytes = sizeBytes,
+            clientMessageId = "client-image-upload-${System.currentTimeMillis()}-${(1000..9999).random()}"
+        )
+        enqueueMessage(connectionType, json.encodeToString(req))
+    }
+
     fun sendDirect(room: String, message: String, connectionType: String = "REFEREE") {
         val req = SendMessageRequest(id = nextId(connectionType), room = room.lowercase(), body = message)
         val raw = json.encodeToString(req)
@@ -430,6 +471,10 @@ class WebSocketRepository @Inject constructor() {
         webSocketClients.remove(connectionType)
         packetIds.remove(connectionType)
         sessionUsernames.remove(connectionType)
+        
+        if (connectionType == "REFEREE") _refereeWalletBalance.value = "0.00 CR"
+        else _starterWalletBalance.value = "0.00 CR"
+
         val stateFlow = if (connectionType == "REFEREE") _refereeConnectionState else _starterConnectionState
         stateFlow.value = ConnectionState.Disconnected
     }
