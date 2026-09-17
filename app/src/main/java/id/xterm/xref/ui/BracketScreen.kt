@@ -82,7 +82,8 @@ fun BracketScreen(
             val matches = (0 until roundSize).map { i ->
                 MatchData(
                     currentNames.getOrElse(i * 2) { "T${i * 2 + 1}" },
-                    currentNames.getOrElse(i * 2 + 1) { "T${i * 2 + 2}" }
+                    currentNames.getOrElse(i * 2 + 1) { "T${i * 2 + 2}" },
+                    matchKey = "${title}_$i"
                 )
             }
             val roundData = RoundData(title, matches)
@@ -268,7 +269,12 @@ fun BracketScreen(
                                 
                                 Spacer(modifier = Modifier.height(4.dp))
                                 
-                                val kickLogs by session?.kickLogs?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList<id.xterm.xref.core.match.KickLog>()) }
+                                val kickLogs = remember(matchKey, session, homeViewModel.completedMatchResults[matchKey]) {
+                                    val sessionLogs = session?.kickLogs?.value ?: emptyList()
+                                    val completedLogs = homeViewModel.completedMatchResults[matchKey]?.logs ?: emptyList()
+                                    // Prefer session logs if active, otherwise use completed logs
+                                    if (sessionLogs.isNotEmpty()) sessionLogs else completedLogs
+                                }
 
                                 Row(
                                     modifier = Modifier
@@ -279,12 +285,12 @@ fun BracketScreen(
                                 ) {
                                     // Team A Column
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text("${session?.teamA?.value?.name?.uppercase() ?: "TEAM A"} LOGS", color = NeonGreen.copy(alpha = 0.4f), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        Text("${match.teamA.uppercase()} LOGS", color = NeonGreen.copy(alpha = 0.4f), fontSize = 8.sp, fontWeight = FontWeight.Bold)
                                         HorizontalDivider(color = NeonGreen.copy(alpha = 0.1f), thickness = 0.5.dp)
-                                        kickLogs.filter { it.team == "A" }.forEach { log ->
+                                        kickLogs.filter { it.team == "A" && it.action == "KICKED" }.forEach { log ->
                                             Text(
-                                                text = "[${log.timeMs}ms] ${log.username.take(8).let { if (it.length < log.username.length) it + ".." else it }} ${if(log.action == "FAILED") "(!)" else ""}",
-                                                color = if(log.action == "FAILED") Color.Yellow.copy(alpha = 0.7f) else NeonGreen.copy(alpha = 0.7f),
+                                                text = "[${log.timeMs}ms] ${log.username}",
+                                                color = NeonGreen.copy(alpha = 0.7f),
                                                 fontSize = 9.sp,
                                                 fontFamily = FontFamily.Monospace,
                                                 modifier = Modifier.padding(vertical = 1.dp)
@@ -296,12 +302,12 @@ fun BracketScreen(
 
                                     // Team B Column
                                     Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                                        Text("${session?.teamB?.value?.name?.uppercase() ?: "TEAM B"} LOGS", color = NeonGreen.copy(alpha = 0.4f), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        Text("${match.teamB.uppercase()} LOGS", color = NeonGreen.copy(alpha = 0.4f), fontSize = 8.sp, fontWeight = FontWeight.Bold)
                                         HorizontalDivider(color = NeonGreen.copy(alpha = 0.1f), thickness = 0.5.dp)
-                                        kickLogs.filter { it.team == "B" }.forEach { log ->
+                                        kickLogs.filter { it.team == "B" && it.action == "KICKED" }.forEach { log ->
                                             Text(
-                                                text = "${if(log.action == "FAILED") "(!)" else ""} ${log.username.take(8).let { if (it.length < log.username.length) it + ".." else it }} [${log.timeMs}ms]",
-                                                color = if(log.action == "FAILED") Color.Yellow.copy(alpha = 0.7f) else NeonGreen.copy(alpha = 0.7f),
+                                                text = "${log.username} [${log.timeMs}ms]",
+                                                color = NeonGreen.copy(alpha = 0.7f),
                                                 fontSize = 9.sp,
                                                 fontFamily = FontFamily.Monospace,
                                                 modifier = Modifier.padding(vertical = 1.dp),

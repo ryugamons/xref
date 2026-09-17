@@ -39,10 +39,11 @@ enum class MatchPhase {
 data class ScheduledMatch(
     val nameA: String,
     val nameB: String,
-    val phase: String
+    val phase: String,
+    val matchKey: String = ""
 )
 
-data class MatchData(val teamA: String, val teamB: String)
+data class MatchData(val teamA: String, val teamB: String, val matchKey: String = "")
 data class RoundData(val title: String, val matches: List<MatchData>)
 
 class HomeViewModel : ViewModel() {
@@ -100,6 +101,7 @@ class HomeViewModel : ViewModel() {
 
     // Bracket State
     val bracketScores = mutableStateMapOf<String, Pair<String, String>>()
+    val completedMatchResults = mutableStateMapOf<String, MatchManager.MatchResult>()
 
     val summonJobs = mutableStateMapOf<String, Job>()
     val roomCountdowns = mutableStateMapOf<String, Int>()
@@ -153,6 +155,13 @@ class HomeViewModel : ViewModel() {
     init {
         matchManager.onMatchFinished = { result ->
             val normalizedRoom = result.room.lowercase()
+            
+            // Map result to the correct bracket match key
+            val scheduled = scheduledMatches[normalizedRoom]
+            if (scheduled != null && scheduled.matchKey.isNotEmpty()) {
+                completedMatchResults[scheduled.matchKey] = result
+            }
+            
             pendingMatchResults[normalizedRoom] = result
             if (isAutoBroadcastResultEnabled) {
                 matchManager.broadcastResult(result)
@@ -360,12 +369,19 @@ class HomeViewModel : ViewModel() {
     fun finishTournamentManually() { matchPhase = MatchPhase.FINISHED }
 
     fun addParticipant(name: String, groupIndex: Int = -1) {
-        if (name.isNotBlank() && registeredParticipants.size < bracketSize && matchPhase == MatchPhase.REGISTRATION) {
-            if (!registeredParticipants.contains(name)) {
-                registeredParticipants.add(name)
-                val targetGroup = if (groupIndex != -1) groupIndex else (registeredParticipants.size - 1) / 16
-                participantGroups[name] = targetGroup
-                sendRegistrationProgress(name, 0L, 0L)
+        val normalizedName = name.trim().lowercase()
+        if (normalizedName.isNotBlank() && registeredParticipants.size < bracketSize && matchPhase == MatchPhase.REGISTRATION) {
+            if (!registeredParticipants.contains(normalizedName)) {
+                registeredParticipants.add(normalizedName)
+                
+                // Assign group: 16 users per group
+                val numGroups = if (bracketSize > 16) bracketSize / 16 else 1
+                val targetGroup = if (groupIndex != -1) groupIndex else {
+                    (registeredParticipants.size - 1) / 16
+                }
+                participantGroups[normalizedName] = targetGroup % numGroups
+                
+                sendRegistrationProgress(normalizedName, 0L, 0L)
             }
         }
     }
@@ -434,7 +450,13 @@ class HomeViewModel : ViewModel() {
         val available = mutableListOf<Pair<MatchData, String>>()
         while (roundSize >= 1 && roundIdx < roundNames.size) {
             val title = roundNames[roundIdx]
-            val matches = (0 until roundSize).map { i -> MatchData(currentNames.getOrElse(i * 2) { "T${i * 2 + 1}" }, currentNames.getOrElse(i * 2 + 1) { "T${i * 2 + 2}" }) }
+            val matches = (0 until roundSize).map { i -> 
+                MatchData(
+                    currentNames.getOrElse(i * 2) { "T${i * 2 + 1}" }, 
+                    currentNames.getOrElse(i * 2 + 1) { "T${i * 2 + 2}" },
+                    matchKey = "${title}_$i"
+                ) 
+            }
             matches.forEachIndexed { i, match ->
                 val score = bracketScores["${title}_$i"]
                 val hasScore = score != null && score.first != "-" && score.second != "-"
@@ -463,25 +485,50 @@ class HomeViewModel : ViewModel() {
     fun updateParticipantRoll(name: String, rollText: String) {
         if (matchPhase != MatchPhase.ROLLING) return
         val rollInt = rollText.toIntOrNull() ?: return
-        participantRolls[name] = rollInt.toString()
-        // Removed auto-seeding to prevent jump state bug
+        val normalizedName = name.lowercase()
+        if (registeredParticipants.contains(normalizedName)) {
+            participantRolls[normalizedName] = rollInt.toString()
+        }
     }
 
     private fun applyRollSeeding() {
-        if (registeredParticipants.any { it.startsWith("EMPTY SLOT") }) return
         val totalSize = bracketSize
         val numGroups = if (totalSize > 16) totalSize / 16 else 1
         val expectedInGroup = if (totalSize > 16) 16 else totalSize
         val newList = mutableListOf<String>()
+
         for (g in 0 until numGroups) {
+            // 1. Get real participants belonging to this group
             val groupParticipants = registeredParticipants.filter { (participantGroups[it] ?: 0) == g }
-            val sortedReal = groupParticipants.map { it to (participantRolls[it]?.toIntOrNull() ?: 999) }.sortedBy { it.second }.map { it.first }.toMutableList()
-            while (sortedReal.size < expectedInGroup) { sortedReal.add("EMPTY SLOT ${newList.size + sortedReal.size + 1}") }
+                .filter { !it.lowercase().startsWith("empty slot") }
+
+            // 2. Sort them by roll result ASCENDING (Lowest roll is best)
+            val sortedReal = groupParticipants.map { it to (participantRolls[it]?.toIntOrNull() ?: 999) }
+                .sortedBy { it.second }
+                .map { it.first }
+                .toMutableList()
+
+            // 3. Fill this specific group to its expected capacity (16 or totalSize)
+            while (sortedReal.size < expectedInGroup) {
+                sortedReal.add("empty slot ${newList.size + sortedReal.size + 1}")
+            }
+
+            // 4. Pair for seeding: 1 vs Last, 2 vs Last-1 ... (Highest vs Lowest)
             val n = sortedReal.size
-            for (i in 0 until n / 2) { newList.add(sortedReal[i]); newList.add(sortedReal[n - 1 - i]) }
+            for (i in 0 until n / 2) {
+                newList.add(sortedReal[i])          // Seed Top
+                newList.add(sortedReal[n - 1 - i])  // Seed Bottom
+            }
         }
-        registeredParticipants.clear()
-        registeredParticipants.addAll(newList)
+
+        if (newList.isNotEmpty()) {
+            registeredParticipants.clear()
+            registeredParticipants.addAll(newList)
+            // Update group mapping for the new slots
+            registeredParticipants.forEachIndexed { idx, name ->
+                participantGroups[name] = idx / 16
+            }
+        }
     }
 
     fun broadcastManualRound(round: RoundData) {
@@ -496,19 +543,19 @@ class HomeViewModel : ViewModel() {
         }
     }
     
-    fun callMatchSummon(room: String, teamA: String, teamB: String, phase: String = "MATCH") {
+    fun callMatchSummon(room: String, teamA: String, teamB: String, phase: String = "MATCH", matchKey: String = "") {
         val normalizedRoom = room.lowercase()
         val normalizedBroadcastRoom = broadcastRoom.lowercase()
         if (scheduledMatches.containsKey(normalizedRoom)) return
         matchPhase = MatchPhase.IN_PROGRESS
-        scheduledMatches[normalizedRoom] = ScheduledMatch(teamA, teamB, phase)
+        scheduledMatches[normalizedRoom] = ScheduledMatch(teamA, teamB, phase, matchKey)
         if (isRefereeConnected) {
             if (!activeRooms.value.contains(normalizedRoom)) webSocketRepository.joinRoom(normalizedRoom, "REFEREE")
             if (broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
                 val message = "/me [PREPARE] ${teamA.uppercase()} VS ${teamB.uppercase()}"
                 webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
                 summonJobs[normalizedRoom] = viewModelScope.launch {
-                    delay(60000)
+                    delay(30000)
                     var remainingSeconds = 180
                     val teamAUser = teamA.lowercase(); val teamBUser = teamB.lowercase()
                     val initialInRoom = roomParticipants.value[normalizedRoom] ?: emptyList()
@@ -582,10 +629,15 @@ class HomeViewModel : ViewModel() {
                 delay(500); webSocketRepository.sendMessage(normalizedRoom, "/kick $starterId", "STARTER")
                 val scheduled = scheduledMatches[normalizedRoom]
                 val nameA = scheduled?.nameA ?: "TEAM A"; val nameB = scheduled?.nameB ?: "TEAM B"
-                val phase = scheduled?.phase ?: "MATCH"; val idsA = selectedIdsA[normalizedRoom]?.toList() ?: emptyList()
-                val idsB = selectedIdsB[normalizedRoom]?.toList() ?: emptyList()
+                val phase = scheduled?.phase ?: "MATCH"
+                
+                // Ensure we use a stable copy of selected IDs
+                val idsA = selectedIdsA[normalizedRoom]?.toList()?.ifEmpty { listOf(nameA) } ?: listOf(nameA)
+                val idsB = selectedIdsB[normalizedRoom]?.toList()?.ifEmpty { listOf(nameB) } ?: listOf(nameB)
+                
+                Log.d("XREF_BATTLE", "Kickoff in $normalizedRoom: $nameA vs $nameB")
                 matchManager.startMatch(normalizedRoom, phase, nameA, idsA, nameB, idsB)
-                selectedIdsA.remove(normalizedRoom); selectedIdsB.remove(normalizedRoom)
+                
                 if (isAutoLeaveStarterEnabled) { delay(1000); webSocketRepository.leaveRoom(normalizedRoom, "STARTER") }
             }
         }
@@ -654,16 +706,18 @@ class HomeViewModel : ViewModel() {
 
     fun processTransfer(sender: String, amountMilliCr: Long) {
         if (matchPhase != MatchPhase.REGISTRATION) return
+        val normalizedSender = sender.trim().lowercase()
         val requiredMilliCr = (registrationFeeNominal.toLongOrNull() ?: 0L) * 1000
         if (amountMilliCr >= requiredMilliCr) {
-            if (!registeredParticipants.contains(sender) && registeredParticipants.size < bracketSize) {
-                registeredParticipants.add(sender)
-                participantGroups[sender] = (registeredParticipants.size - 1) / 16
+            if (!registeredParticipants.contains(normalizedSender) && registeredParticipants.size < bracketSize) {
+                registeredParticipants.add(normalizedSender)
+                val numGroups = if (bracketSize > 16) bracketSize / 16 else 1
+                participantGroups[normalizedSender] = ((registeredParticipants.size - 1) / 16) % numGroups
                 val refundMilliCr = if (requiredMilliCr > 0) amountMilliCr - requiredMilliCr else 0L
                 if (refundMilliCr > 0) {
-                    viewModelScope.launch { webSocketRepository.sendTransfer(sender, refundMilliCr, walletPin, "REFEREE") }
+                    viewModelScope.launch { webSocketRepository.sendTransfer(normalizedSender, refundMilliCr, walletPin, "REFEREE") }
                 }
-                sendRegistrationProgress(sender, amountMilliCr / 1000, refundMilliCr / 1000)
+                sendRegistrationProgress(normalizedSender, amountMilliCr / 1000, refundMilliCr / 1000)
             }
         }
     }
@@ -741,8 +795,56 @@ class HomeViewModel : ViewModel() {
     fun updateMultiLoginTemplate(template: String) { multiLoginTemplate = template; viewModelScope.launch { AuthPreferences.saveMultiLoginTemplate(template) } }
     fun updateBracketScore(roundName: String, matchIndex: Int, scoreA: String, scoreB: String) { bracketScores["${roundName}_$matchIndex"] = Pair(scoreA, scoreB); checkTournamentFinished() }
     private fun checkTournamentFinished() { val available = getAvailableMatchesFromBracket(); if (available.isEmpty()) { val finalScore = bracketScores["FINAL_0"]; if (finalScore != null && finalScore.first != "-" && finalScore.second != "-") { matchPhase = MatchPhase.FINISHED; stopBroadcasting() } } }
-    fun toggleParticipantSelection(username: String, room: String, forTeamA: Boolean) { val map = if (forTeamA) selectedIdsA else selectedIdsB; val list = map.getOrPut(room.lowercase()) { mutableStateListOf() }; if (list.contains(username)) list.remove(username) else list.add(username) }
-    fun autoSelectParticipants(filter: String, room: String, forTeamA: Boolean) { if (filter.length < 3) return; val participants = roomParticipants.value[room.lowercase()] ?: return; val map = if (forTeamA) selectedIdsA else selectedIdsB; val list = map.getOrPut(room.lowercase()) { mutableStateListOf() }; participants.forEach { if (it.contains(filter, ignoreCase = true) && !list.contains(it)) list.add(it) } }
+    fun toggleParticipantSelection(username: String, room: String, forTeamA: Boolean) {
+        val normalizedRoom = room.lowercase()
+        val targetMap = if (forTeamA) selectedIdsA else selectedIdsB
+        val otherMap = if (forTeamA) selectedIdsB else selectedIdsA
+        
+        val targetList = targetMap.getOrPut(normalizedRoom) { mutableStateListOf() }
+        val otherList = otherMap[normalizedRoom] ?: emptyList<String>()
+        
+        if (targetList.contains(username)) {
+            targetList.remove(username)
+        } else {
+            // Only add if NOT already selected by the other team and not full (limit 10)
+            val isAlreadyTakenByOther = otherList.any { it.equals(username, ignoreCase = true) }
+            if (!isAlreadyTakenByOther && targetList.size < 10) {
+                targetList.add(username)
+            }
+        }
+    }
+
+    fun autoSelectParticipants(filter: String, room: String, forTeamA: Boolean) {
+        if (filter.length < 2) return 
+        val normalizedRoom = room.lowercase()
+        val participants = roomParticipants.value[normalizedRoom] ?: return
+        
+        val targetMap = if (forTeamA) selectedIdsA else selectedIdsB
+        val otherMap = if (forTeamA) selectedIdsB else selectedIdsA
+        
+        val targetList = targetMap.getOrPut(normalizedRoom) { mutableStateListOf() }
+        // Fetch a fresh snapshot of what the other team has selected
+        val otherList = otherMap[normalizedRoom]?.toList() ?: emptyList<String>()
+        
+        // Advanced Regex: 
+        // 1. (^|.*[._-]) : Starts at beginning OR follows a separator (_, ., -)
+        // 2. Regex.escape(filter) : The typed filter
+        // 3. [._-]?\d*$ : Optional separator followed by digits at the end
+        val smartRegex = "(^|.*[._-])${Regex.escape(filter)}[._-]?\\d*$".toRegex(RegexOption.IGNORE_CASE)
+        
+        participants.forEach { username ->
+            val isAlreadySelectedByTarget = targetList.contains(username)
+            val isAlreadySelectedByOther = otherList.any { it.equals(username, ignoreCase = true) }
+
+            if (username.matches(smartRegex) && 
+                !isAlreadySelectedByTarget && 
+                !isAlreadySelectedByOther) {
+                if (targetList.size < 10) {
+                    targetList.add(username)
+                }
+            }
+        }
+    }
     fun saveTemplates(readyCheck: String) { readyCheckTemplate = readyCheck; viewModelScope.launch { AuthPreferences.saveReadyCheckTemplate(readyCheck); showSnackbar("SETTINGS SAVED") } }
 
     fun exportData() {

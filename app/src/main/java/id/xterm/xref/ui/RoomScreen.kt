@@ -648,7 +648,7 @@ fun MatchSelectionDialog(viewModel: HomeViewModel, roomName: String) {
         onDismissRequest = { viewModel.matchSelectionDialogVisible = false },
         title = {
             Text(
-                text = "SELECT MATCH FOR ${roomName.uppercase()}",
+                text = "SELECT MATCH  ${roomName.uppercase()}",
                 color = NeonGreen,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
@@ -668,12 +668,15 @@ fun MatchSelectionDialog(viewModel: HomeViewModel, roomName: String) {
                     )
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(matches) { (match, phase) ->
+                        items(matches.size) { i ->
+                            val (match, phase) = matches[i]
+                            // The available matches list needs to preserve original bracket index for history mapping
+                            // We find the index by matching team names in the calculated bracket (handled in getAvailableMatchesFromBracket)
                             XrefButton(
                                 text = "${match.teamA} vs ${match.teamB} [$phase]",
                                 onClick = {
                                     viewModel.matchSelectionDialogVisible = false
-                                    viewModel.callMatchSummon(roomName, match.teamA, match.teamB, phase)
+                                    viewModel.callMatchSummon(roomName, match.teamA, match.teamB, phase, match.matchKey)
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 height = 48.dp,
@@ -727,7 +730,7 @@ fun TeamSelectionDialog(viewModel: HomeViewModel, roomName: String) {
     }
 
     LaunchedEffect(filterText) {
-        if (filterText.length >= 3) {
+        if (filterText.length >= 2) {
             viewModel.autoSelectParticipants(filterText, roomName, isTeamA)
         }
     }

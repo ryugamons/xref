@@ -113,7 +113,7 @@ fun MainScreen(
             text = {
                 Text(
                     text = "App Name: XREF\n" +
-                            "Version: 1.04\n" +
+                            "Version: 1.05\n" +
                             "Creator: HEX\n\n" +
                             "Description: A professional broadcasting and starter tool for mig33 kick tournaments. Features include real-time match monitoring, tournament brackets, and automated 10vs10 match logic.",
                     color = NeonGreen

@@ -28,6 +28,7 @@ sealed class ConnectionState {
     data object Disconnected : ConnectionState()
 }
 
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 @Singleton
 class WebSocketRepository @Inject constructor() {
     companion object {
@@ -38,9 +39,11 @@ class WebSocketRepository @Inject constructor() {
         }
     }
     
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     private val json = Json { 
         ignoreUnknownKeys = true 
-        encodeDefaults = true
+        encodeDefaults = true 
+        explicitNulls = false 
     }
     
     private val okHttpClient = OkHttpClient.Builder()
@@ -116,7 +119,13 @@ class WebSocketRepository @Inject constructor() {
 
         repositoryScope.launch {
             for (msg in outgoingChannel) {
-                webSocketClients[msg.connectionType]?.send(msg.rawMessage)
+                val client = webSocketClients[msg.connectionType]
+                if (client != null) {
+                    val success = client.send(msg.rawMessage)
+                    if (!success) Log.e("XREF_WS", "Failed to send message from queue for ${msg.connectionType}")
+                } else {
+                    Log.e("XREF_WS", "No active connection for ${msg.connectionType}. Message dropped.")
+                }
                 delay(400) // Rate limit for normal text as per production server rules
             }
         }

@@ -1010,96 +1010,40 @@ private fun MatchSection(
                 }
             }
 
-            // Participants List Cards (Grouped)
+            // Participants List Cards
             if (viewModel.registeredParticipants.isNotEmpty()) {
-                val numGroups = if (viewModel.bracketSize > 16) viewModel.bracketSize / 16 else 1
-                
-                for (gIdx in 0 until numGroups) {
-                    val groupParticipants = viewModel.registeredParticipants.filter { 
-                        (viewModel.participantGroups[it] ?: 0) == gIdx 
-                    }
-                    
-                    if (groupParticipants.isNotEmpty()) {
-                        val groupLabel = when(gIdx) {
-                            0 -> "A"
-                            1 -> "B"
-                            2 -> "C"
-                            3 -> "D"
-                            else -> (gIdx + 1).toString()
+                if (viewModel.bracketSize > 16) {
+                    // Grouped Layout for large brackets
+                    val numGroups = viewModel.bracketSize / 16
+                    for (gIdx in 0 until numGroups) {
+                        val groupParticipants = viewModel.registeredParticipants.filter { 
+                            (viewModel.participantGroups[it] ?: 0) == gIdx 
                         }
                         
-                        Spacer(modifier = Modifier.height(16.dp))
-                        XrefCard(title = "GROUP $groupLabel PARTICIPANTS (${groupParticipants.size}/16)") {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                groupParticipants.forEach { participant ->
-                                    val index = viewModel.registeredParticipants.indexOf(participant)
-                                    val roll = viewModel.participantRolls[participant]
-                                    
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.Bottom,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        // Editable Name
-                                        XrefTextField(
-                                            value = participant,
-                                            onValueChange = { newValue -> 
-                                                if (newValue.isNotBlank() && !viewModel.registeredParticipants.contains(newValue)) {
-                                                    val oldRoll = viewModel.participantRolls.remove(participant)
-                                                    val oldGroup = viewModel.participantGroups.remove(participant)
-                                                    viewModel.registeredParticipants[index] = newValue
-                                                    if (oldGroup != null) viewModel.participantGroups[newValue] = oldGroup
-                                                    if (oldRoll != null) viewModel.participantRolls[newValue] = oldRoll
-                                                }
-                                            },
-                                            label = "NAME",
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        
-                                        // Editable Roll
-                                        XrefTextField(
-                                            value = roll ?: "",
-                                            onValueChange = { newValue ->
-                                                if (newValue.isEmpty() || newValue.all { it.isDigit() }) {
-                                                    viewModel.updateParticipantRoll(participant, newValue)
-                                                }
-                                            },
-                                            label = "ROLL",
-                                            modifier = Modifier.width(90.dp),
-                                            borderColor = if (roll != null && viewModel.duplicateRolls.contains(roll))
-                                                Color(0xFFFFA500)
-                                            else DarkGreen700
-                                        )
-                                        
-                                        // Remove Participant Button
-                                        val canDelete = viewModel.matchPhase == MatchPhase.REGISTRATION || viewModel.matchPhase == MatchPhase.ROLLING
-                                        IconButton(
-                                            onClick = { 
-                                                viewModel.registeredParticipants.remove(participant)
-                                                viewModel.participantRolls.remove(participant)
-                                                viewModel.participantGroups.remove(participant)
-                                            },
-                                            enabled = canDelete,
-                                            modifier = Modifier
-                                                .size(42.dp)
-                                                .background(if (canDelete) RedPucatTrans else Color.Transparent, RoundedCornerShape(8.dp))
-                                                .border(1.dp, if (canDelete) RedPucatBorder else Color.Gray.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                                        ) {
-                                            Text(
-                                                text = "×",
-                                                color = if (canDelete) RedPucat else TextDim.copy(alpha = 0.3f),
-                                                fontSize = 20.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                }
+                        if (groupParticipants.isNotEmpty()) {
+                            val groupLabel = when(gIdx) {
+                                0 -> "A"
+                                1 -> "B"
+                                2 -> "C"
+                                3 -> "D"
+                                else -> (gIdx + 1).toString()
+                            }
+                            
+                            Spacer(modifier = Modifier.height(16.dp))
+                            XrefCard(title = "GROUP $groupLabel PARTICIPANTS (${groupParticipants.size}/16)") {
+                                ParticipantsList(viewModel, groupParticipants)
                             }
                         }
                     }
+                } else {
+                    // Single list for 16 or fewer participants
+                    Spacer(modifier = Modifier.height(16.dp))
+                    XrefCard(title = "PARTICIPANTS (${viewModel.registeredParticipants.size}/${viewModel.bracketSize})") {
+                        ParticipantsList(viewModel, viewModel.registeredParticipants)
+                    }
                 }
             }
-            
+
             if (viewModel.matchPhase != MatchPhase.IDLE) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
@@ -1113,6 +1057,75 @@ private fun MatchSection(
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.align(Alignment.CenterHorizontally)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun ParticipantsList(viewModel: HomeViewModel, participants: List<String>) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        participants.forEach { participant ->
+            val index = viewModel.registeredParticipants.indexOf(participant)
+            val roll = viewModel.participantRolls[participant]
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // Editable Name
+                XrefTextField(
+                    value = participant,
+                    onValueChange = { newValue ->
+                        if (newValue.isNotBlank() && !viewModel.registeredParticipants.contains(newValue)) {
+                            val oldRoll = viewModel.participantRolls.remove(participant)
+                            val oldGroup = viewModel.participantGroups.remove(participant)
+                            viewModel.registeredParticipants[index] = newValue
+                            if (oldGroup != null) viewModel.participantGroups[newValue] = oldGroup
+                            if (oldRoll != null) viewModel.participantRolls[newValue] = oldRoll
+                        }
+                    },
+                    label = "NAME",
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Editable Roll
+                XrefTextField(
+                    value = roll ?: "",
+                    onValueChange = { newValue ->
+                        if (newValue.isEmpty() || newValue.all { it.isDigit() }) {
+                            viewModel.updateParticipantRoll(participant, newValue)
+                        }
+                    },
+                    label = "ROLL",
+                    modifier = Modifier.width(90.dp),
+                    borderColor = if (roll != null && viewModel.duplicateRolls.contains(roll))
+                        Color(0xFFFFA500)
+                    else DarkGreen700
+                )
+
+                // Remove Participant Button
+                val canDelete = viewModel.matchPhase == MatchPhase.REGISTRATION || viewModel.matchPhase == MatchPhase.ROLLING
+                IconButton(
+                    onClick = {
+                        viewModel.registeredParticipants.remove(participant)
+                        viewModel.participantRolls.remove(participant)
+                        viewModel.participantGroups.remove(participant)
+                    },
+                    enabled = canDelete,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(if (canDelete) RedPucatTrans else Color.Transparent, RoundedCornerShape(8.dp))
+                        .border(1.dp, if (canDelete) RedPucatBorder else Color.Gray.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                ) {
+                    Text(
+                        text = "×",
+                        color = if (canDelete) RedPucat else TextDim.copy(alpha = 0.3f),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }
