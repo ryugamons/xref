@@ -823,20 +823,13 @@ class HomeViewModel : ViewModel() {
         val otherMap = if (forTeamA) selectedIdsB else selectedIdsA
         
         val targetList = targetMap.getOrPut(normalizedRoom) { mutableStateListOf() }
-        // Fetch a fresh snapshot of what the other team has selected
         val otherList = otherMap[normalizedRoom]?.toList() ?: emptyList<String>()
-        
-        // Advanced Regex: 
-        // 1. (^|.*[._-]) : Starts at beginning OR follows a separator (_, ., -)
-        // 2. Regex.escape(filter) : The typed filter
-        // 3. [._-]?\d*$ : Optional separator followed by digits at the end
-        val smartRegex = "(^|.*[._-])${Regex.escape(filter)}[._-]?\\d*$".toRegex(RegexOption.IGNORE_CASE)
         
         participants.forEach { username ->
             val isAlreadySelectedByTarget = targetList.contains(username)
             val isAlreadySelectedByOther = otherList.any { it.equals(username, ignoreCase = true) }
 
-            if (username.matches(smartRegex) && 
+            if (username.contains(filter, ignoreCase = true) && 
                 !isAlreadySelectedByTarget && 
                 !isAlreadySelectedByOther) {
                 if (targetList.size < 10) {
