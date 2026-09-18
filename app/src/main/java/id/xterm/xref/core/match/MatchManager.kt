@@ -62,6 +62,7 @@ class MatchSession(
     val kickCountMap = _kickCountMap.asStateFlow()
 
     private var battleStartTime = 0L
+    private var currentKickStartTime = 0L
     private var voteTimer: Job? = null
     private var postKickTimer: Job? = null
     private var lockJob: Job? = null
@@ -157,6 +158,18 @@ class MatchSession(
         if (body.contains("A vote to kick", ignoreCase = true) && body.contains("started by", ignoreCase = true)) {
             postKickTimer?.cancel()
             voteTimer?.cancel()
+            
+            // Per-action timing & Instant Log
+            currentKickStartTime = serverNow
+            val targetUser = body.substringAfter("A vote to kick ", "").substringBefore(" started by", "").trim().lowercase()
+            if (targetUser.isNotEmpty()) {
+                val team = getTeam(targetUser)
+                if (team != "Unknown") {
+                    val log = KickLog(team, targetUser, 0L, "STARTING")
+                    _kickLogs.update { (listOf(log) + it).take(100) }
+                }
+            }
+
             voteTimer = scope.launch {
                 delay(3000)
                 if (_state.value == MatchState.Battle) sendGoal("TIMEOUT (VOTE HANG)")
@@ -173,7 +186,8 @@ class MatchSession(
                 delay(3000)
                 if (_state.value == MatchState.Battle) sendGoal("TIMEOUT (NO RESPONSE)")
             }
-            val diff = if (battleStartTime > 0) serverNow - battleStartTime else 0L
+            val diff = if (currentKickStartTime > 0) serverNow - currentKickStartTime else 0L
+            currentKickStartTime = 0L
             val team = getTeam(kickedUser)
             if (team != "Unknown") {
                 val log = KickLog(team, kickedUser, diff, "KICKED")
@@ -185,7 +199,8 @@ class MatchSession(
         if (body.contains("Failed to kick", ignoreCase = true) && _state.value == MatchState.Battle) {
             val targetUser = body.replace("Failed to kick ", "", ignoreCase = true).trim().lowercase()
             voteTimer?.cancel()
-            val diff = if (battleStartTime > 0) serverNow - battleStartTime else 0L
+            val diff = if (currentKickStartTime > 0) serverNow - currentKickStartTime else 0L
+            currentKickStartTime = 0L
             val team = getTeam(targetUser)
             if (team != "Unknown") {
                 val log = KickLog(team, targetUser, diff, "FAILED")
