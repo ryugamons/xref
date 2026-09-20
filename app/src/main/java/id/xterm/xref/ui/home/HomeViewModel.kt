@@ -89,7 +89,7 @@ class HomeViewModel : ViewModel() {
     var broadcastIntervalSeconds by mutableStateOf(120)
     var turneyTitle by mutableStateOf("KleponXclub")
     var multiLoginTemplate by mutableStateOf("Please enter your troop to {room} NOW!")
-    var readyCheckTemplate by mutableStateOf("/me Are you ready to Fvck?")
+    var readyCheckTemplate by mutableStateOf("/me : Are you ready to Fvck?")
     var isAutoLeaveStarterEnabled by mutableStateOf(false)
     var isAutoBroadcastResultEnabled by mutableStateOf(true)
 
@@ -353,7 +353,7 @@ class HomeViewModel : ViewModel() {
                 val normalizedBroadcastRoom = broadcastRoom.lowercase()
                 if (isRefereeConnected && broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
                     val participantsToRefund = registeredParticipants.toList()
-                    webSocketRepository.sendMessage(normalizedBroadcastRoom, "/me [SYSTEM] Match cancelled. Refunding credits...", "REFEREE")
+                    webSocketRepository.sendMessage(normalizedBroadcastRoom, "/me : [SYSTEM] Match cancelled. Refunding credits...", "REFEREE")
                     if (isRegistrationFeeEnabled) {
                         val feeMilliCr = registrationFeeNominal.toLongOrNull()?.let { it * 1000 } ?: 0L
                         if (feeMilliCr > 0) {
@@ -421,7 +421,7 @@ class HomeViewModel : ViewModel() {
             val joinedText = registeredParticipants.joinToString(", ")
             val feeText = if (isRegistrationFeeEnabled) "$registrationFeeNominal CR" else "FREE"
             val instruction = if (isRegistrationFeeEnabled) "TRF ID $refereeId" else "Type JOIN to enter!"
-            val message = "/me [$turneyTitle] OPEN MATCH $bracketSize USERS\nFEE $feeText - $instruction [$joinedText]"
+            val message = "/me : [$turneyTitle] OPEN MATCH $bracketSize USERS\nFEE $feeText - $instruction [$joinedText]"
             webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
             return true
         }
@@ -433,7 +433,7 @@ class HomeViewModel : ViewModel() {
         if (isRefereeConnected && broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
             val pendingRolls = registeredParticipants.filter { !participantRolls.containsKey(it) }
             if (pendingRolls.isNotEmpty()) {
-                val message = "/me ALL PARTICIPANTS PLEASE /roll NOW!\nPENDING: [${pendingRolls.joinToString(", ")}]"
+                val message = "/me : ALL PARTICIPANTS PLEASE /roll NOW!\nPENDING: [${pendingRolls.joinToString(", ")}]"
                 webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
             }
             return true
@@ -451,8 +451,7 @@ class HomeViewModel : ViewModel() {
 
     fun getAvailableMatchesFromBracket(): List<Pair<MatchData, String>> {
         val totalSlots = bracketSize
-        val participants = registeredParticipants.toList()
-        var currentNames = participants.toList()
+        var currentNames = getSeededParticipants()
         val allRoundNames = listOf("ROUND OF 64", "ROUND OF 32", "ROUND OF 16", "QUARTER-FINALS", "SEMI-FINALS", "FINAL")
         val startRoundIdx = when (totalSlots) { 64 -> 0; 32 -> 1; 16 -> 2; 8 -> 3; 4 -> 4; 2 -> 5; else -> 5 }
         val roundNames = allRoundNames.drop(startRoundIdx)
@@ -493,20 +492,48 @@ class HomeViewModel : ViewModel() {
         return available
     }
 
-    fun updateParticipantRoll(name: String, rollText: String) {
+    fun updateParticipantRoll(name: String, rollText: String, isManual: Boolean = false) {
         if (matchPhase != MatchPhase.ROLLING) return
-        val rollInt = rollText.toIntOrNull() ?: return
         val normalizedName = name.lowercase()
-        if (registeredParticipants.contains(normalizedName)) {
-            participantRolls[normalizedName] = rollInt.toString()
+        if (!registeredParticipants.contains(normalizedName)) return
+
+        if (rollText.isBlank()) {
+            participantRolls.remove(normalizedName)
+            return
         }
+
+        val rollInt = rollText.toIntOrNull() ?: return
+        val rollString = rollInt.toString()
+
+        if (participantRolls[normalizedName] == rollString) return
+
+        // Prevent double result
+        val isValueTaken = participantRolls.any { it.key != normalizedName && it.value == rollString }
+        if (isValueTaken) {
+            showSnackbar("ROLL IGNORED: $rollString ALREADY TAKEN BY OTHERS")
+            return
+        }
+
+        // Prevent double roll
+        if (!isManual && participantRolls.containsKey(normalizedName)) {
+            showSnackbar("ROLL IGNORED: $normalizedName ALREADY ROLLED")
+            return
+        }
+
+        participantRolls[normalizedName] = rollString
     }
 
     private fun applyRollSeeding() {
+        // We no longer shuffle the registeredParticipants list.
+        // Seeding is now calculated dynamically in getSeededParticipants().
+        // This keeps the user list stable while providing the correct bracket order.
+    }
+
+    fun getSeededParticipants(): List<String> {
         val totalSize = bracketSize
         val numGroups = if (totalSize > 16) totalSize / 16 else 1
         val expectedInGroup = if (totalSize > 16) 16 else totalSize
-        val newList = mutableListOf<String>()
+        val resultList = mutableListOf<String>()
 
         for (g in 0 until numGroups) {
             // 1. Get real participants belonging to this group
@@ -514,32 +541,25 @@ class HomeViewModel : ViewModel() {
                 .filter { !it.lowercase().startsWith("empty slot") }
 
             // 2. Sort them by roll result ASCENDING (Lowest roll is best)
+            // Use name as fallback for deterministic sorting
             val sortedReal = groupParticipants.map { it to (participantRolls[it]?.toIntOrNull() ?: 999) }
-                .sortedBy { it.second }
+                .sortedWith(compareBy<Pair<String, Int>> { it.second }.thenBy { it.first })
                 .map { it.first }
                 .toMutableList()
 
             // 3. Fill this specific group to its expected capacity (16 or totalSize)
             while (sortedReal.size < expectedInGroup) {
-                sortedReal.add("empty slot ${newList.size + sortedReal.size + 1}")
+                sortedReal.add("empty slot ${resultList.size + sortedReal.size + 1}")
             }
 
             // 4. Pair for seeding: 1 vs Last, 2 vs Last-1 ... (Highest vs Lowest)
             val n = sortedReal.size
             for (i in 0 until n / 2) {
-                newList.add(sortedReal[i])          // Seed Top
-                newList.add(sortedReal[n - 1 - i])  // Seed Bottom
+                resultList.add(sortedReal[i])          // Seed Top
+                resultList.add(sortedReal[n - 1 - i])  // Seed Bottom
             }
         }
-
-        if (newList.isNotEmpty()) {
-            registeredParticipants.clear()
-            registeredParticipants.addAll(newList)
-            // Update group mapping for the new slots
-            registeredParticipants.forEachIndexed { idx, name ->
-                participantGroups[name] = idx / 16
-            }
-        }
+        return resultList
     }
 
     fun broadcastManualRound(round: RoundData) {
@@ -548,7 +568,7 @@ class HomeViewModel : ViewModel() {
         viewModelScope.launch {
             val pairs = round.matches.map { "${it.teamA.uppercase()} vs ${it.teamB.uppercase()}" }
             if (pairs.isNotEmpty()) {
-                val message = "/me [${round.title}] BRACKET: ${pairs.joinToString(" | ")}"
+                val message = "/me : [${round.title}] BRACKET: ${pairs.joinToString(" | ")}"
                 webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
             }
         }
@@ -563,7 +583,7 @@ class HomeViewModel : ViewModel() {
         if (isRefereeConnected) {
             if (!activeRooms.value.contains(normalizedRoom)) webSocketRepository.joinRoom(normalizedRoom, "REFEREE")
             if (broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
-                val message = "/me [PREPARE] ${teamA.uppercase()} VS ${teamB.uppercase()}"
+                val message = "/me : [PREPARE] ${teamA.uppercase()} VS ${teamB.uppercase()}"
                 webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
                 summonJobs[normalizedRoom] = viewModelScope.launch {
                     delay(30000)
@@ -594,7 +614,7 @@ class HomeViewModel : ViewModel() {
                             if (teamAReady && teamBReady) break
                             val min = remainingSeconds / 60; val sec = remainingSeconds % 60
                             val timeStr = "%02d:%02d".format(min, sec) + "m"
-                            val countdownMessage = "/me [${room.uppercase()}] ${teamA.uppercase()} VS ${teamB.uppercase()}\n[$timeStr]"
+                            val countdownMessage = "/me : [${room.uppercase()}] ${teamA.uppercase()} VS ${teamB.uppercase()}\n[$timeStr]"
                             webSocketRepository.sendMessage(normalizedBroadcastRoom, countdownMessage, "REFEREE")
                             val interval = if (remainingSeconds > 60) 60 else 30
                             var waited = 0
@@ -687,12 +707,12 @@ class HomeViewModel : ViewModel() {
                 val current = roomCountdowns[normalizedRoom] ?: 0
                 if (current == 120 || current == 60) {
                     val min = current / 60
-                    webSocketRepository.sendMessage(normalizedRoom, "/me [SYSTEM] $min minutes to enter!", "REFEREE")
+                    webSocketRepository.sendMessage(normalizedRoom, "/me : [SYSTEM] $min minutes to enter!", "REFEREE")
                 }
                 delay(1000); if (current > 0) roomCountdowns[normalizedRoom] = current - 1
             }
             if ((roomCountdowns[normalizedRoom] ?: 0) <= 0) {
-                webSocketRepository.sendMessage(normalizedRoom, "/me [SYSTEM] Time is up! Multi-ID failed to enter will be DIS.", "REFEREE")
+                webSocketRepository.sendMessage(normalizedRoom, "/me : [SYSTEM] Time is up! Multi-ID failed to enter will be DIS.", "REFEREE")
             }
             countdownJobs.remove(normalizedRoom)
         }
@@ -709,8 +729,8 @@ class HomeViewModel : ViewModel() {
         val scheduled = scheduledMatches[room.lowercase()]
         viewModelScope.launch {
             val message = when {
-                isBoth -> "/me RESULT [DIS]: BOTH TEAMS FAILED TO ENTER."
-                winnerTeam != null && loserTeam != null -> "/me RESULT [10-0]: ${winnerTeam.uppercase()} WINS vs ${loserTeam.uppercase()} DIS."
+                isBoth -> "/me : RESULT [DIS]: BOTH TEAMS FAILED TO ENTER."
+                winnerTeam != null && loserTeam != null -> "/me : RESULT [10-0]: ${winnerTeam.uppercase()} WINS vs ${loserTeam.uppercase()} DIS."
                 else -> return@launch
             }
             webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
@@ -762,7 +782,7 @@ class HomeViewModel : ViewModel() {
         if (isRefereeConnected && broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
             val count = registeredParticipants.size; val total = bracketSize
             val refundText = if (refundCr > 0) " ${refundCr}CR REFUNDED." else ""
-            val message = if (isRegistrationFeeEnabled) "/me ${username.uppercase()} TRANSFER ${amountCr}CR ✅.$refundText REGISTRATION $count/$total." else "/me ${username.uppercase()} JOINED ✅. REGISTRATION $count/$total."
+            val message = if (isRegistrationFeeEnabled) "/me : ${username.uppercase()} TRANSFER ${amountCr}CR ✅.$refundText REGISTRATION $count/$total." else "/me ${username.uppercase()} JOINED ✅. REGISTRATION $count/$total."
             webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
         }
     }
@@ -770,7 +790,7 @@ class HomeViewModel : ViewModel() {
     private fun sendMatchClosedMessage() {
         val normalizedBroadcastRoom = broadcastRoom.lowercase()
         if (isRefereeConnected && broadcastRoom.isNotEmpty() && activeRooms.value.contains(normalizedBroadcastRoom)) {
-            val message = "/me REGISTRATION CLOSED ($bracketSize/$bracketSize) ✅"
+            val message = "/me : REGISTRATION CLOSED ($bracketSize/$bracketSize) ✅"
             webSocketRepository.sendMessage(normalizedBroadcastRoom, message, "REFEREE")
         }
     }

@@ -43,12 +43,8 @@ fun BracketScreen(
     homeViewModel: HomeViewModel = viewModel()
 ) {
     val totalSlots = homeViewModel.bracketSize
-    val participants = remember(homeViewModel.registeredParticipants.toList(), totalSlots) {
-        val list = homeViewModel.registeredParticipants.toMutableList()
-        while (list.size < totalSlots) {
-            list.add("EMPTY SLOT ${list.size + 1}")
-        }
-        list
+    val participants = remember(homeViewModel.registeredParticipants.size, homeViewModel.participantRolls.size, totalSlots) {
+        homeViewModel.getSeededParticipants()
     }
 
     var bracketVersion by remember { mutableStateOf(0) }

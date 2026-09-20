@@ -253,7 +253,7 @@ class MatchSession(
             val winnerPart = if (winnerName != "DRAW") "\nWinner: ${winnerName.uppercase()}" else "\nRESULT: DRAW"
             
             // Battle Room Messages (Simplified)
-            webSocketRepository.sendMessage(room, "/me [RESULT]\n$resultSummary$winnerPart\nCongrats!! Please leave the room", "REFEREE")
+            webSocketRepository.sendMessage(room, "/me : [RESULT]\n$resultSummary$winnerPart\nCongrats!! Please leave the room", "REFEREE")
             
             // Auto-unlock & unmod Team Names (Captains)
             delay(1000)
@@ -323,7 +323,7 @@ class MatchManager @Inject constructor(private val webSocketRepository: WebSocke
     fun broadcastResult(result: MatchResult) {
         if (mainBroadcastRoom.isNotEmpty()) {
             val winnerPart = if (result.winner != "DRAW") " Winner: ${result.winner.uppercase()}" else " RESULT: DRAW"
-            webSocketRepository.sendMessage(mainBroadcastRoom, "/me [${result.room.uppercase()}]$winnerPart\n${result.summary}", "REFEREE")
+            webSocketRepository.sendMessage(mainBroadcastRoom, "/me : [${result.room.uppercase()}]$winnerPart\n${result.summary}", "REFEREE")
         }
     }
 

@@ -1094,7 +1094,8 @@ fun ParticipantsList(viewModel: HomeViewModel, participants: List<String>) {
                 // Editable Name
                 XrefTextField(
                     value = participant,
-                    onValueChange = { newValue ->
+                    onValueChange = { rawValue ->
+                        val newValue = rawValue.lowercase().trim()
                         if (newValue.isNotBlank() && !viewModel.registeredParticipants.contains(newValue)) {
                             val oldRoll = viewModel.participantRolls.remove(participant)
                             val oldGroup = viewModel.participantGroups.remove(participant)
@@ -1112,7 +1113,7 @@ fun ParticipantsList(viewModel: HomeViewModel, participants: List<String>) {
                     value = roll ?: "",
                     onValueChange = { newValue ->
                         if (newValue.isEmpty() || newValue.all { it.isDigit() }) {
-                            viewModel.updateParticipantRoll(participant, newValue)
+                            viewModel.updateParticipantRoll(participant, newValue, isManual = true)
                         }
                     },
                     label = "ROLL",
