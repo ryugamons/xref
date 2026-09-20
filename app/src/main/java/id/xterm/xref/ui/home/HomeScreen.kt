@@ -32,6 +32,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.ui.unit.sp
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -63,6 +65,10 @@ fun DashboardScreen(
 ) {
     if (viewModel.showLicenseDialog) {
         LicenseDialog(viewModel)
+    }
+
+    if (viewModel.showTransferHistory) {
+        WalletHistoryDialog(viewModel)
     }
 
     if (!viewModel.isAuthorized) {
@@ -313,6 +319,17 @@ private fun RefereeSection(viewModel: HomeViewModel) {
                     label = "Amount",
                     modifier = Modifier.width(80.dp),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                XrefButton(
+                    text = "HIST",
+                    onClick = { viewModel.fetchWalletHistory() },
+                    modifier = Modifier.width(60.dp),
+                    height = 42.dp,
+                    fontSize = 11.sp,
+                    contentPadding = PaddingValues(0.dp),
+                    enabled = viewModel.isRefereeConnected,
+                    containerColor = Color.Green,
+                    contentColor = Color.White
                 )
                 XrefButton(
                     text = "SEND",
@@ -1403,5 +1420,104 @@ fun LicenseDialog(viewModel: HomeViewModel) {
         textContentColor = Color.White,
         shape = RoundedCornerShape(8.dp)
     )
+}
+
+@Composable
+fun WalletHistoryDialog(viewModel: HomeViewModel) {
+    AlertDialog(
+        onDismissRequest = { viewModel.showTransferHistory = false },
+        title = {
+            Text(
+                text = "WALLET HISTORY",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().height(400.dp)) {
+                if (viewModel.isFetchingHistory) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = NeonGreen)
+                    }
+                } else if (viewModel.walletHistory.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("NO TRANSACTIONS FOUND", color = TextDim, fontSize = 12.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(viewModel.walletHistory) { transaction ->
+                            TransactionItem(transaction)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            XrefButton(
+                text = "CLOSE",
+                onClick = { viewModel.showTransferHistory = false },
+                modifier = Modifier.width(100.dp),
+                height = 36.dp,
+                fontSize = 12.sp
+            )
+        },
+        containerColor = DarkBackground,
+        titleContentColor = NeonGreen,
+        textContentColor = Color.White,
+        shape = RoundedCornerShape(8.dp)
+    )
+}
+
+@Composable
+fun TransactionItem(transaction: id.xterm.xref.core.websocket.TransactionData) {
+    val isOut = transaction.type.contains("out", ignoreCase = true)
+    val color = if (isOut) RedPucat else NeonGreen
+    val prefix = if (isOut) "-" else "+"
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(DarkGreen800, RoundedCornerShape(4.dp))
+            .border(0.5.dp, DarkGreen700, RoundedCornerShape(4.dp))
+            .padding(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = transaction.type.replace("_", " ").uppercase(),
+                color = color,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = "$prefix${transaction.amountMilliCr / 1000} CR",
+                color = color,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+        Text(
+            text = transaction.note,
+            color = Color.White,
+            fontSize = 10.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            fontFamily = FontFamily.Monospace
+        )
+        Text(
+            text = transaction.createdAt,
+            color = TextDim,
+            fontSize = 9.sp,
+            fontFamily = FontFamily.Monospace
+        )
+    }
 }
 

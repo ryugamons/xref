@@ -15,12 +15,15 @@ import id.xterm.core.license.ChallengeUtil
 import id.xterm.core.security.SecurityManager
 import id.xterm.xref.XrefApplication
 import id.xterm.xref.core.match.MatchManager
+import id.xterm.xref.core.match.MatchState
 import id.xterm.xref.core.websocket.ChatMessage
+import id.xterm.xref.core.websocket.TransactionData
 import id.xterm.xref.data.repository.ConnectionState
 import id.xterm.xref.data.repository.WebSocketRepository
 import id.xterm.xref.data.storage.AuthPreferences
 import kotlinx.serialization.json.*
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -107,6 +110,9 @@ class HomeViewModel : ViewModel() {
     val roomCountdowns = mutableStateMapOf<String, Int>()
     private val countdownJobs = mutableStateMapOf<String, Job>()
 
+    val kickoffCountdowns = mutableStateMapOf<String, Int>()
+    private val kickoffCountdownJobs = mutableStateMapOf<String, Job>()
+
     val duplicateRolls by derivedStateOf {
         participantRolls.values
             .filter { it.toIntOrNull() != null }
@@ -142,6 +148,11 @@ class HomeViewModel : ViewModel() {
     var transferTargetId by mutableStateOf("")
     var transferAmountCr by mutableStateOf("")
     
+    // History State
+    var walletHistory by mutableStateOf<List<TransactionData>>(emptyList())
+    var showTransferHistory by mutableStateOf(false)
+    var isFetchingHistory by mutableStateOf(false)
+
     // Screenshot & Upload State
     var isUploadingImage by mutableStateOf(false)
     
@@ -625,6 +636,30 @@ class HomeViewModel : ViewModel() {
         val normalizedRoom = room.lowercase()
         viewModelScope.launch {
             if (isStarterConnected) {
+                // 1. Manage Kickoff Timer
+                kickoffCountdownJobs[normalizedRoom]?.cancel()
+                kickoffCountdowns[normalizedRoom] = 60
+                kickoffCountdownJobs[normalizedRoom] = viewModelScope.launch {
+                    val timerJob = this
+                    // Stop timer if Match State changes from Kickoff
+                    launch {
+                        matchManager.getSession(normalizedRoom)?.state?.collect { state ->
+                            if (state != MatchState.Kickoff && state != MatchState.Idle) {
+                                timerJob.cancel()
+                            }
+                        }
+                    }
+
+                    while (isActive && (kickoffCountdowns[normalizedRoom] ?: 0) > 0) {
+                        delay(1000)
+                        val current = kickoffCountdowns[normalizedRoom] ?: 0
+                        if (current > 0) {
+                            kickoffCountdowns[normalizedRoom] = current - 1
+                        }
+                    }
+                    kickoffCountdowns.remove(normalizedRoom)
+                }
+
                 webSocketRepository.joinRoom(normalizedRoom, "STARTER")
                 delay(500); webSocketRepository.sendMessage(normalizedRoom, "/kick $starterId", "STARTER")
                 val scheduled = scheduledMatches[normalizedRoom]
@@ -751,6 +786,24 @@ class HomeViewModel : ViewModel() {
         viewModelScope.launch {
             val success = webSocketRepository.sendTransfer(transferTargetId, amount * 1000, walletPin, "REFEREE")
             if (success) { showSnackbar("TRANSFER SUCCESS: $amount CR to $transferTargetId"); transferAmountCr = ""; transferTargetId = "" } else showSnackbar("TRANSFER FAILED. CHECK LOGS/BALANCE.")
+        }
+    }
+
+    fun fetchWalletHistory() {
+        if (isFetchingHistory) return
+        isFetchingHistory = true
+        showTransferHistory = true
+        viewModelScope.launch {
+            try {
+                val response = webSocketRepository.getWalletHistory("REFEREE")
+                if (response != null) {
+                    walletHistory = response.transactions
+                }
+            } catch (e: Exception) {
+                showSnackbar("FAILED TO FETCH HISTORY")
+            } finally {
+                isFetchingHistory = false
+            }
         }
     }
 

@@ -26,6 +26,7 @@ import id.xterm.xref.core.websocket.ChatMessage
 import id.xterm.xref.core.websocket.MessageType
 import id.xterm.xref.ui.theme.NeonGreen
 import id.xterm.xref.ui.theme.TextLight
+import kotlinx.coroutines.delay
 
 @Composable
 fun ChatView(
@@ -36,8 +37,8 @@ fun ChatView(
     
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            // Use scrollToItem instead of animateScrollToItem to save CPU on low-end devices
-            listState.scrollToItem(messages.size - 1)
+            delay(20L)
+            listState.animateScrollToItem(messages.size - 1)
         }
     }
 

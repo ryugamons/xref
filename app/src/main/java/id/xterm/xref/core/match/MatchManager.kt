@@ -90,7 +90,7 @@ class MatchSession(
         // Auto-lock room 30s after Starter starts (Kickoff phase)
         lockJob?.cancel()
         lockJob = scope.launch {
-            delay(30000)
+            delay(1000)
             if (_state.value == MatchState.Kickoff || _state.value == MatchState.Battle) {
                 webSocketRepository.sendMessage(room, "/lock", "REFEREE")
             }
@@ -312,7 +312,6 @@ class MatchManager @Inject constructor(private val webSocketRepository: WebSocke
         val normalizedRoom = room.lowercase()
         stopMatch(normalizedRoom)
         val session = MatchSession(normalizedRoom, webSocketRepository) { result ->
-            broadcastResult(result)
             onMatchFinished?.invoke(result)
             stopMatch(result.room)
         }

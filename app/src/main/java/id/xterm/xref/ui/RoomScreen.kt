@@ -1,6 +1,7 @@
 package id.xterm.xref.ui
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,7 +20,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -139,43 +142,56 @@ fun RoomScreen(
 
 @Composable
 private fun RoomList(rooms: List<String>, viewModel: HomeViewModel, onRoomClick: (String) -> Unit) {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
-            .padding(16.dp)
     ) {
-        Text(
-            text = "ACTIVE ROOMS",
-            color = NeonGreen,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(bottom = 16.dp)
+        Image(
+            painter = painterResource(id = id.xterm.xref.R.drawable.firefly),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            alpha = 0.25f
         )
+        
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = "ACTIVE ROOMS",
+                color = NeonGreen,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
 
-        if (rooms.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "NO ACTIVE ROOMS\nJOIN A ROOM FROM HOME",
-                    color = TextDim,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-            }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(rooms) { room ->
-                    val messages = viewModel.roomMessagesMap[room]
-                    val lastMessage = messages?.lastOrNull()
-                    RoomItem(
-                        name = room, 
-                        lastChat = lastMessage?.let { "${it.username}: ${it.text}" },
-                        onClick = { onRoomClick(room) }
+            if (rooms.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "NO ACTIVE ROOMS\nJOIN A ROOM FROM HOME",
+                        color = TextDim,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(rooms) { room ->
+                        val messages = viewModel.roomMessagesMap[room]
+                        val lastMessage = messages?.lastOrNull()
+                        RoomItem(
+                            name = room, 
+                            lastChat = lastMessage?.let { "${it.username}: ${it.text}" },
+                            onClick = { onRoomClick(room) }
+                        )
+                    }
                 }
             }
         }
@@ -393,7 +409,8 @@ private fun RoomChatDetail(
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            val remainingSeconds = homeViewModel.roomCountdowns[roomName.lowercase()]
+            val remainingSeconds = homeViewModel.roomCountdowns[normalizedRoom]
+            val kickoffSeconds = homeViewModel.kickoffCountdowns[normalizedRoom]
             
             Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
                 XrefButton(
@@ -485,7 +502,29 @@ private fun RoomChatDetail(
                 }
             }
 
-            if (remainingSeconds != null) {
+            if (kickoffSeconds != null && kickoffSeconds > 0) {
+                val min = kickoffSeconds / 60
+                val sec = kickoffSeconds % 60
+                val timeStr = "%02d:%02d".format(min, sec)
+
+                Row(
+                    modifier = Modifier
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(DarkGreen800)
+                        .border(1.dp, Color(0xFFFFB300), RoundedCornerShape(8.dp)) // Amber border for kickoff
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = timeStr,
+                        color = Color(0xFFFFB300),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            } else if (remainingSeconds != null) {
                 val isTimeUp = remainingSeconds <= 0
                 val min = remainingSeconds / 60
                 val sec = remainingSeconds % 60

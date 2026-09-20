@@ -48,7 +48,7 @@ fun SplashScreen() {
     ) {
         // Background Image filling the entire screen
         Image(
-            painter = painterResource(id = R.drawable.klepon),
+            painter = painterResource(id = R.drawable.firefly),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop, // This makes it fill the screen
@@ -61,17 +61,6 @@ fun SplashScreen() {
             verticalArrangement = Arrangement.Center,
             modifier = Modifier.fillMaxWidth(0.85f)
         ) {
-            Text(
-                text = "XREF TERMINAL",
-                color = NeonGreen,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Black,
-                fontFamily = FontFamily.Monospace,
-                letterSpacing = 6.sp
-            )
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            
             LinearProgressIndicator(
                 progress = { animatedProgress },
                 modifier = Modifier
