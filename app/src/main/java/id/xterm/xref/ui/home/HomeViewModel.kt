@@ -268,10 +268,10 @@ class HomeViewModel : ViewModel() {
                     }
                 }
                 if (matchPhase == MatchPhase.ROLLING) {
-                    val rollRegex = "(?:\\*\\*\\s+)?([a-zA-Z0-9_]+)\\s+rolls\\s+([0-9]+)".toRegex(RegexOption.IGNORE_CASE)
-                    val rollMatch = rollRegex.find(message.text)
-                    if (rollMatch != null) {
-                        updateParticipantRoll(rollMatch.groupValues[1], rollMatch.groupValues[2])
+                    val rollValueRegex = "rolls\\s+([0-9]+)".toRegex(RegexOption.IGNORE_CASE)
+                    val rollValueMatch = rollValueRegex.find(message.text)
+                    if (rollValueMatch != null) {
+                        updateParticipantRoll(message.username, rollValueMatch.groupValues[1])
                     }
                 }
                 if (matchPhase == MatchPhase.REGISTRATION && !isRegistrationFeeEnabled) {
@@ -450,46 +450,88 @@ class HomeViewModel : ViewModel() {
     }
 
     fun getAvailableMatchesFromBracket(): List<Pair<MatchData, String>> {
-        val totalSlots = bracketSize
-        var currentNames = getSeededParticipants()
-        val allRoundNames = listOf("ROUND OF 64", "ROUND OF 32", "ROUND OF 16", "QUARTER-FINALS", "SEMI-FINALS", "FINAL")
-        val startRoundIdx = when (totalSlots) { 64 -> 0; 32 -> 1; 16 -> 2; 8 -> 3; 4 -> 4; 2 -> 5; else -> 5 }
-        val roundNames = allRoundNames.drop(startRoundIdx)
-        var roundSize = totalSlots / 2
-        var roundIdx = 0
         val available = mutableListOf<Pair<MatchData, String>>()
-        while (roundSize >= 1 && roundIdx < roundNames.size) {
+        val rounds = getTournamentRounds()
+        
+        rounds.forEach { round ->
+            round.matches.forEach { match ->
+                val score = bracketScores[match.matchKey]
+                val hasScore = score != null && score.first != "-" && score.second != "-"
+                if (!hasScore && !scheduledMatches.containsKey(match.teamA) && !match.teamA.startsWith("WINNER") && !match.teamA.startsWith("EMPTY")) {
+                    available.add(match to round.title)
+                }
+            }
+        }
+        return available
+    }
+
+    fun getTournamentRounds(): List<RoundData> {
+        val totalSlots = bracketSize
+        val participants = getSeededParticipants()
+        var currentNames = participants.toList()
+        
+        val allRoundNames = if (totalSlots == 48) {
+            listOf("ROUND OF 64", "ROUND OF 32", "ROUND OF 16", "QUARTER-FINALS", "SEMI-FINALS", "GROUP FINAL")
+        } else {
+            listOf("ROUND OF 64", "ROUND OF 32", "ROUND OF 16", "QUARTER-FINALS", "SEMI-FINALS", "FINAL")
+        }
+        
+        val startRoundIdx = when (totalSlots) { 
+            64 -> 0; 32 -> 1; 16 -> 2; 48 -> 2; 8 -> 3; 4 -> 4; 2 -> 5; else -> 5 
+        }
+        val roundNames = allRoundNames.drop(startRoundIdx)
+        
+        val numParallelGroups = if (totalSlots == 48) 3 else 1
+        var roundSizePerGroup = (totalSlots / numParallelGroups) / 2
+        
+        var roundIdx = 0
+        val resultRounds = mutableListOf<RoundData>()
+        
+        // 1. Group Stage Progression
+        while (roundSizePerGroup >= 1 && roundIdx < roundNames.size) {
             val title = roundNames[roundIdx]
-            val matches = (0 until roundSize).map { i -> 
+            val totalRoundMatches = roundSizePerGroup * numParallelGroups
+            
+            val matches = (0 until totalRoundMatches).map { i -> 
                 MatchData(
                     currentNames.getOrElse(i * 2) { "T${i * 2 + 1}" }, 
                     currentNames.getOrElse(i * 2 + 1) { "T${i * 2 + 2}" },
                     matchKey = "${title}_$i"
                 ) 
             }
-            matches.forEachIndexed { i, match ->
-                val score = bracketScores["${title}_$i"]
-                val hasScore = score != null && score.first != "-" && score.second != "-"
-                if (!hasScore && !scheduledMatches.containsKey(match.teamA) && !match.teamA.startsWith("WINNER") && !match.teamA.startsWith("EMPTY")) {
-                    available.add(match to title)
-                }
-            }
+            resultRounds.add(RoundData(title, matches))
+            
             currentNames = matches.indices.map { i ->
                 val score = bracketScores["${title}_$i"]
                 val sA = score?.first?.toIntOrNull() ?: -1
                 val sB = score?.second?.toIntOrNull() ?: -1
                 if (sA > sB) matches[i].teamA else if (sB > sA) matches[i].teamB else "WINNER ${title}-${i + 1}"
             }.let { winners ->
-                if (roundSize > 8) {
-                    val half = roundSize / 2
+                if (roundSizePerGroup > 8) {
+                    val half = winners.size / 2
                     val reordered = mutableListOf<String>()
                     for (i in 0 until half) { reordered.add(winners[i]); reordered.add(winners[i + half]) }
                     reordered
                 } else winners
             }
-            roundSize /= 2; roundIdx++
+            
+            roundSizePerGroup /= 2
+            roundIdx++
         }
-        return available
+        
+        // 2. Special Triangular Final for 48-user mode
+        if (totalSlots == 48) {
+            val finalTitle = "TRIANGULAR FINAL"
+            val finalists = currentNames.take(3)
+            val triMatches = listOf(
+                MatchData(finalists[0], finalists[1], "${finalTitle}_0"),
+                MatchData(finalists[1], finalists[2], "${finalTitle}_1"),
+                MatchData(finalists[2], finalists[0], "${finalTitle}_2")
+            )
+            resultRounds.add(RoundData(finalTitle, triMatches))
+        }
+        
+        return resultRounds
     }
 
     fun updateParticipantRoll(name: String, rollText: String, isManual: Boolean = false) {
@@ -510,8 +552,10 @@ class HomeViewModel : ViewModel() {
         // Prevent double result
         val isValueTaken = participantRolls.any { it.key != normalizedName && it.value == rollString }
         if (isValueTaken) {
-            showSnackbar("ROLL IGNORED: $rollString ALREADY TAKEN BY OTHERS")
-            return
+            if (!isManual) {
+                showSnackbar("ROLL IGNORED: $rollString ALREADY TAKEN BY OTHERS")
+                return
+            }
         }
 
         // Prevent double roll

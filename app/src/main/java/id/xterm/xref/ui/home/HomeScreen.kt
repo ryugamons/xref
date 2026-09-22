@@ -676,7 +676,7 @@ private fun MatchSection(
         ) {
             // Dropdown for Team Count
             var expanded by remember { mutableStateOf(false) }
-            val options = listOf(2, 4, 8, 16, 32, 64)
+            val options = listOf(2, 4, 8, 16, 32, 48, 64)
             
             Column {
                 Text(
@@ -810,6 +810,17 @@ private fun MatchSection(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                if (viewModel.matchPhase == MatchPhase.IDLE || viewModel.matchPhase == MatchPhase.FINISHED) {
+                    XrefButton(
+                        text = "IMPORT",
+                        onClick = { filePickerLauncher.launch("application/json") },
+                        modifier = Modifier.weight(1f),
+                        height = 56.dp,
+                        containerColor = NeonGreen,
+                        contentColor = Color.Black
+                    )
+                }
+
                 XrefButton(
                     text = buttonText,
                     onClick = { 
@@ -901,14 +912,6 @@ private fun MatchSection(
                         XrefButton(
                             text = "EXPORT",
                             onClick = { viewModel.exportData() },
-                            modifier = Modifier.weight(1f),
-                            height = 42.dp,
-                            containerColor = DarkGreen800,
-                            contentColor = NeonGreen
-                        )
-                        XrefButton(
-                            text = "IMPORT",
-                            onClick = { filePickerLauncher.launch("*/*") },
                             modifier = Modifier.weight(1f),
                             height = 42.dp,
                             containerColor = DarkGreen800,

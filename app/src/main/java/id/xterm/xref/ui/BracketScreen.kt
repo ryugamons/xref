@@ -49,72 +49,8 @@ fun BracketScreen(
 
     var bracketVersion by remember { mutableStateOf(0) }
 
-    val rounds = remember(participants, totalSlots, bracketVersion) {
-        val list = mutableListOf<RoundData>()
-        val bracketScores = homeViewModel.bracketScores
-        
-        var currentNames = participants.toList()
-        
-        val allRoundNames = listOf("ROUND OF 64", "ROUND OF 32", "ROUND OF 16", "QUARTER-FINALS", "SEMI-FINALS", "FINAL")
-        
-        // Determine starting round index based on totalSlots
-        val startRoundIdx = when (totalSlots) {
-            64 -> 0
-            32 -> 1
-            16 -> 2
-            8 -> 3
-            4 -> 4
-            2 -> 5
-            else -> 5
-        }
-        
-        val roundNames = allRoundNames.drop(startRoundIdx)
-        
-        var roundSize = totalSlots / 2
-        var roundIdx = 0
-        
-        while (roundSize >= 1 && roundIdx < roundNames.size) {
-            val title = roundNames[roundIdx]
-            val matches = (0 until roundSize).map { i ->
-                MatchData(
-                    currentNames.getOrElse(i * 2) { "T${i * 2 + 1}" },
-                    currentNames.getOrElse(i * 2 + 1) { "T${i * 2 + 2}" },
-                    matchKey = "${title}_$i"
-                )
-            }
-            val roundData = RoundData(title, matches)
-            list.add(roundData)
-            
-            // Calculate winners for next round
-            val winners = matches.indices.map { i ->
-                val score = bracketScores["${title}_$i"]
-                val sA = score?.first?.toIntOrNull() ?: -1
-                val sB = score?.second?.toIntOrNull() ?: -1
-                
-                if (sA > sB) matches[i].teamA 
-                else if (sB > sA) matches[i].teamB 
-                else "WINNER ${title}-${i + 1}"
-            }
-
-            // Cross-Bracket Seeding: Match i meets Match i + (N/2)
-            // Only applied if round has more than 8 matches (more than 16 users)
-            if (roundSize > 8) {
-                val half = roundSize / 2
-                val reordered = mutableListOf<String>()
-                for (i in 0 until half) {
-                    reordered.add(winners[i])
-                    reordered.add(winners[i + half])
-                }
-                currentNames = reordered
-            } else {
-                currentNames = winners
-            }
-            
-            roundSize /= 2
-            roundIdx++
-        }
-        
-        list
+    val rounds = remember(participants, totalSlots, bracketVersion, homeViewModel.bracketScores.size) {
+        homeViewModel.getTournamentRounds()
     }
 
     val webSocketRepository = remember { WebSocketRepository.getInstance() }
@@ -328,7 +264,55 @@ fun BracketScreen(
                     }
                 }
             }
+
+            // Triangular Final Standings (Special for 48-user mode)
+            if (homeViewModel.bracketSize == 48) {
+                val triFinal = rounds.lastOrNull { it.title == "TRIANGULAR FINAL" }
+                if (triFinal != null) {
+                    val m0 = homeViewModel.bracketScores["TRIANGULAR FINAL_0"]
+                    val m1 = homeViewModel.bracketScores["TRIANGULAR FINAL_1"]
+                    val m2 = homeViewModel.bracketScores["TRIANGULAR FINAL_2"]
+
+                    val finalists = triFinal.matches.map { it.teamA }.distinct().take(3)
+                    if (finalists.size == 3) {
+                        val nameA = finalists[0]
+                        val nameB = finalists[1]
+                        val nameC = finalists[2]
+
+                        val winA = (if ((m0?.first?.toIntOrNull() ?: -1) > (m0?.second?.toIntOrNull() ?: -1)) 1 else 0) +
+                                   (if ((m2?.second?.toIntOrNull() ?: -1) > (m2?.first?.toIntOrNull() ?: -1)) 1 else 0)
+                        
+                        val winB = (if ((m0?.second?.toIntOrNull() ?: -1) > (m0?.first?.toIntOrNull() ?: -1)) 1 else 0) +
+                                   (if ((m1?.first?.toIntOrNull() ?: -1) > (m1?.second?.toIntOrNull() ?: -1)) 1 else 0)
+                        
+                        val winC = (if ((m1?.second?.toIntOrNull() ?: -1) > (m1?.first?.toIntOrNull() ?: -1)) 1 else 0) +
+                                   (if ((m2?.first?.toIntOrNull() ?: -1) > (m2?.second?.toIntOrNull() ?: -1)) 1 else 0)
+
+                        item {
+                            XrefCard(title = "FINAL STANDINGS") {
+                                Column(modifier = Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    FinalistRow(nameA, winA)
+                                    FinalistRow(nameB, winB)
+                                    FinalistRow(nameC, winC)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
+}
+
+@Composable
+fun FinalistRow(name: String, points: Int) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(name.uppercase(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+        Text("$points PTS", color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, fontFamily = FontFamily.Monospace)
     }
 }
 

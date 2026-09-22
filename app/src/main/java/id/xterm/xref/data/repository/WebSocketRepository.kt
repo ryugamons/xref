@@ -142,9 +142,16 @@ class WebSocketRepository @Inject constructor() {
                 val body = jsonObject.get("body")?.jsonPrimitive?.contentOrNull ?: ""
                 val time = jsonObject.get("time")?.jsonPrimitive?.contentOrNull ?: ""
                 val kind = jsonObject.get("message_kind")?.jsonPrimitive?.contentOrNull ?: "text"
+                val mediaUrl = jsonObject.get("media_url")?.jsonPrimitive?.contentOrNull
                 
                 val isAction = kind == "action" || (body.startsWith("**") && body.endsWith("**"))
-                val msgType = if (isAction) MessageType.ACTION else MessageType.TEXT
+                val msgType = if (!mediaUrl.isNullOrEmpty()) {
+                    MessageType.IMAGE
+                } else if (isAction) {
+                    MessageType.ACTION
+                } else {
+                    MessageType.TEXT
+                }
                 
                 if (connectionType == "REFEREE") {
                     val chatMsg = ChatMessage(
@@ -153,7 +160,8 @@ class WebSocketRepository @Inject constructor() {
                         text = body,
                         time = time,
                         type = msgType,
-                        eventType = type
+                        eventType = type,
+                        mediaUrl = mediaUrl
                     )
                     messageSubscribers.forEach { it.trySend(roomName.lowercase() to chatMsg) }
                 }

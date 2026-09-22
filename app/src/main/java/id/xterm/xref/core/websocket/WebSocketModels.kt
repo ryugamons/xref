@@ -164,9 +164,10 @@ data class ChatMessage(
     val text: String,
     val time: String,
     val type: MessageType,
-    val eventType: String? = null
+    val eventType: String? = null,
+    val mediaUrl: String? = null
 )
 
 enum class MessageType {
-    TEXT, ACTION, PRESENCE, SYSTEM
+    TEXT, ACTION, PRESENCE, SYSTEM, IMAGE
 }
